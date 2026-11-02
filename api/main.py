@@ -215,7 +215,7 @@ def run_workflow(request: WorkflowRunRequest):
     by_id = {str(node.get("id")): node for node in nodes}
     if len(by_id) != len(nodes) or "" in by_id:
         raise HTTPException(422, "Каждый узел должен иметь уникальный ID.")
-    allowed = {"source", "profile", "preprocess", "model", "evaluation"}
+    allowed = {"source", "profile", "preprocess", "selection", "split", "model", "evaluation", "explain", "export"}
     for node in nodes:
         kind = node.get("data", {}).get("kind")
         if kind not in allowed:
@@ -252,6 +252,8 @@ def run_workflow(request: WorkflowRunRequest):
     preprocess_options = {"scaler": "standard", "imputer_strategy": "median"}
     training_result = None
     training_id = None
+    workflow_selection: dict[str, Any] = {}
+    workflow_split: dict[str, Any] = {}
     for identifier in order:
         node = by_id[identifier]
         kind = node.get("data", {}).get("kind")
@@ -268,6 +270,18 @@ def run_workflow(request: WorkflowRunRequest):
             profile = _profile(predecessor)
             data[identifier] = predecessor
             node_results[identifier] = {"status": "complete", "rows": len(predecessor), "columns": len(predecessor.columns), "preview": _preview(predecessor), "profile": profile, "summary": {"rows": profile["rows"], "columns": profile["columns"], "missing": profile["missingTotal"]}}
+        elif kind == "selection":
+            if not isinstance(predecessor, pd.DataFrame):
+                raise HTTPException(422, f"Узел {identifier}: выбор цели ожидает таблицу.")
+            workflow_selection = {"target": str(config.get("target", "")), "features": list(config.get("features") or [])}
+            data[identifier] = predecessor
+            node_results[identifier] = {"status": "complete", "rows": len(predecessor), "columns": len(predecessor.columns), "preview": _preview(predecessor), "summary": {"target": workflow_selection["target"], "features": workflow_selection["features"]}}
+        elif kind == "split":
+            if not isinstance(predecessor, pd.DataFrame):
+                raise HTTPException(422, f"Узел {identifier}: настройка разбиения ожидает таблицу.")
+            workflow_split = dict(config.get("training") or {})
+            data[identifier] = predecessor
+            node_results[identifier] = {"status": "complete", "rows": len(predecessor), "columns": len(predecessor.columns), "preview": _preview(predecessor), "summary": {"split": workflow_split.get("split", "random"), "test_size": workflow_split.get("test_size", .2), "validation_size": workflow_split.get("validation_size", .2)}}
         elif kind == "preprocess":
             if not isinstance(predecessor, pd.DataFrame):
                 raise HTTPException(422, f"Узел {identifier}: предобработка ожидает таблицу.")
@@ -281,7 +295,7 @@ def run_workflow(request: WorkflowRunRequest):
             if prep_config.get("target"):
                 prep_config["target"] = str(prep_config["target"])
             try:
-                prepared_frame = prepare_frame(predecessor, **prep_config)
+                prepared_frame = predecessor.copy() if predecessor.attrs.get("workflow_prepared") else prepare_frame(predecessor, **prep_config)
             except Exception as exc:
                 raise HTTPException(422, f"Узел {identifier}: ошибка подготовки данных: {exc}") from exc
             prepared_frame.attrs["workflow_prepared"] = True
@@ -291,14 +305,14 @@ def run_workflow(request: WorkflowRunRequest):
             if not isinstance(predecessor, pd.DataFrame):
                 raise HTTPException(422, f"Узел {identifier}: обучение ожидает таблицу.")
             task = str(config.get("task", "Регрессия"))
-            target = str(config.get("target", ""))
-            features = list(config.get("features") or [])
+            target = workflow_selection.get("target") or str(config.get("target", ""))
+            features = workflow_selection.get("features") or list(config.get("features") or [])
             model_name = str(config.get("model", "Random Forest"))
             model_params = config.get("params") or {}
             if not target or not features:
                 raise HTTPException(422, f"Узел {identifier}: выберите целевую колонку и хотя бы один признак.")
             prepared = predecessor if predecessor.attrs.get("workflow_prepared") else prepare_frame(predecessor, target=target, calendar=True)
-            training_options = dict(config.get("training") or {})
+            training_options = workflow_split | dict(config.get("training") or {})
             if training_options.get("forecast_end") and len(str(training_options["forecast_end"])) == 10:
                 training_options["forecast_end"] = (pd.Timestamp(training_options["forecast_end"]) + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)).isoformat()
             params = DEFAULTS | preprocess_options | training_options | model_params
@@ -349,6 +363,27 @@ def run_workflow(request: WorkflowRunRequest):
                     break
             data[identifier] = training_result
             node_results[identifier] = {"status": "complete", "rows": len(predecessor), "columns": len(features), "preview": _preview(predecessor[features + [target]]), "metrics": training_result["metrics"], "validation": training_result["validation"], "sizes": training_result["sizes"], "leaderboard": training_result["leaderboard"], "summary": {"model": model_name, "task": task, "target": target, "features": features, "recordId": record["id"]}}
+        elif kind == "explain":
+            if not isinstance(predecessor, dict) or "pipeline" not in predecessor:
+                raise HTTPException(422, f"Узел {identifier}: объяснение ожидает обученную модель.")
+            method = str(config.get("method", "Permutation Importance"))
+            try:
+                from ml_lab.explain import permutation_scores, shap_scores, integrated_gradients
+                if method == "Permutation Importance": payload = permutation_scores(predecessor)
+                elif method == "SHAP": payload = shap_scores(predecessor)
+                elif method == "Integrated Gradients": payload = integrated_gradients(predecessor)
+                else: raise ValueError("Неизвестный метод объяснения.")
+            except Exception as exc:
+                raise HTTPException(422, f"Узел {identifier}: ошибка объяснения модели: {exc}") from exc
+            predecessor.setdefault("explanations", {})[method] = payload
+            data[identifier] = predecessor
+            rows = payload.get("summary", payload) if isinstance(payload, dict) else payload
+            node_results[identifier] = {"status": "complete", "rows": len(rows) if isinstance(rows, list) else 0, "columns": 0, "preview": _json_safe(rows[:100]) if isinstance(rows, list) else [], "summary": {"message": f"Рассчитано: {method}", "method": method, "runId": training_id}}
+        elif kind == "export":
+            if not isinstance(predecessor, dict) or "metrics" not in predecessor or not training_id:
+                raise HTTPException(422, f"Узел {identifier}: экспорт ожидает обученную модель.")
+            data[identifier] = predecessor
+            node_results[identifier] = {"status": "complete", "rows": len(predecessor.get("predictions", [])), "columns": len(predecessor.get("predictions", pd.DataFrame()).columns), "summary": {"runId": training_id, "message": "Артефакты эксперимента готовы к скачиванию."}}
         elif kind == "evaluation":
             if not isinstance(predecessor, dict) or "metrics" not in predecessor:
                 raise HTTPException(422, f"Узел {identifier}: оценка ожидает обученную модель.")
@@ -365,7 +400,7 @@ def run_workflow(request: WorkflowRunRequest):
         "experiment": {
             "id": training_id, "model": training_result["name"], "task": training_result["task"],
             "target": training_result["target"], "features": training_result["features"],
-            "metrics": training_result["metrics"], "trainMetrics": training_result["train_metrics"],
+            "metrics": training_result["metrics"], "trainMetrics": training_result["train_metrics"], "validation": training_result.get("validation", {}),
             "sizes": training_result["sizes"], "leaderboard": training_result["leaderboard"],
             "predictions": _preview(predictions, 1000), "training": _preview(training_result["train_predictions"], 1000),
         },
@@ -442,12 +477,27 @@ def model_details(name: str, task: str = "Регрессия"):
     if name not in MODEL_REGISTRY or task not in MODELS or name not in MODELS[task]:
         raise HTTPException(404, "Описание модели недоступно для этой задачи.")
     from ml_lab.model_theory import theory, architecture_dot
+    import inspect
+    from importlib.metadata import PackageNotFoundError, version
     spec = MODEL_REGISTRY[name]
+    estimator_class = spec.get("classes", {}).get(task)
+    library_description = ""
+    signature = ""
+    installed_version = "не установлена"
+    if estimator_class is not None:
+        signature = str(inspect.signature(estimator_class))
+        library_description = " ".join((inspect.getdoc(estimator_class) or "").split())[:5000]
+    try:
+        installed_version = version(spec.get("package", "scikit-learn"))
+    except PackageNotFoundError:
+        pass
     return {
         "name": name, "task": task, "group": spec.get("group"), "package": spec.get("package"),
         "description": spec.get("description", ""), "parameters": spec.get("parameters", {}),
         "documentation": documentation(name, task), "theory": theory(name, task),
-        "architecture": architecture_dot(name, task, {}),
+        "architecture": architecture_dot(name, task, {}), "signature": signature,
+        "className": getattr(estimator_class, "__name__", name),
+        "libraryDescription": library_description, "installedVersion": installed_version,
     }
 
 
@@ -579,7 +629,7 @@ def train(request: TrainRequest):
         return {
             "id": run_id, "record": record, "model": result["name"], "task": result["task"],
             "target": result["target"], "features": result["features"], "metrics": result["metrics"],
-            "trainMetrics": result["train_metrics"], "sizes": result["sizes"],
+            "trainMetrics": result["train_metrics"], "validation": result.get("validation", {}), "sizes": result["sizes"],
             "leaderboard": result["leaderboard"], "predictions": table_records(result["predictions"], 1000),
             "training": table_records(result["train_predictions"], 1000),
         }

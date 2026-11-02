@@ -1,7 +1,7 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
-import { Activity, BrainCircuit, Check, Circle, Database, Gauge, LoaderCircle, ScanSearch, SlidersHorizontal, TriangleAlert } from 'lucide-react'
+import { Activity, BrainCircuit, Check, Circle, Database, Gauge, LoaderCircle, ScanSearch, SlidersHorizontal, TriangleAlert, Scissors, Target, FileOutput, Sparkles } from 'lucide-react'
 
-export type ToolKind = 'source' | 'profile' | 'preprocess' | 'model' | 'evaluation'
+export type ToolKind = 'source' | 'profile' | 'preprocess' | 'selection' | 'split' | 'model' | 'evaluation' | 'explain' | 'export'
 export type NodeStatus = 'idle' | 'running' | 'complete' | 'error' | 'dirty'
 export type ToolConfig = {
   dataset?: string
@@ -17,6 +17,8 @@ export type ToolConfig = {
   strategy?: string
   count?: number
   searchSpace?: Record<string, Record<string, unknown>>
+  operation?: string
+  method?: string
 }
 export type ToolNodeData = {
   kind: ToolKind
@@ -33,8 +35,12 @@ const iconByKind = {
   preprocess: SlidersHorizontal,
   model: BrainCircuit,
   evaluation: Gauge,
+  selection: Target,
+  split: Scissors,
+  explain: Sparkles,
+  export: FileOutput,
 }
-const colors = { source: 'blue', profile: 'cyan', preprocess: 'violet', model: 'green', evaluation: 'amber' }
+const colors = { source: 'blue', profile: 'cyan', preprocess: 'violet', selection:'blue',split:'amber',model:'green',evaluation:'amber',explain:'violet',export:'cyan' }
 const statusLabels = { idle: 'Ожидает запуска', running: 'Выполняется', complete: 'Выполнен', error: 'Ошибка', dirty: 'Нужно пересчитать' }
 
 export function WorkbenchNode({ data, selected }: NodeProps<ToolNode>) {
@@ -45,7 +51,7 @@ export function WorkbenchNode({ data, selected }: NodeProps<ToolNode>) {
     <div className="work-node-head"><span className="work-node-icon"><Icon size={16} /></span><span className="work-node-title">{data.label}</span><span className={`node-status-icon ${status}`}>{status === 'complete' ? <Check size={12} /> : status === 'running' ? <LoaderCircle size={12} className="spin" /> : status === 'error' ? <TriangleAlert size={12} /> : <Circle size={8} />}</span></div>
     <div className="work-node-description">{data.summary ?? summaryByKind[data.kind]}</div>
     <div className="work-node-status"><span className={`status-indicator ${status}`} />{statusLabels[status]}</div>
-    {data.kind !== 'evaluation' && <Handle type="source" position={Position.Right} className="work-handle" />}
+    {!['export'].includes(data.kind) && <Handle type="source" position={Position.Right} className="work-handle" />}
   </div>
 }
 
@@ -55,6 +61,10 @@ const summaryByKind: Record<ToolKind, string> = {
   preprocess: 'Импутация и масштабирование внутри train',
   model: 'Обучение на выбранных признаках',
   evaluation: 'Метрики, прогнозы и диагностические графики',
+  selection: 'Выбор целевой колонки и входных признаков',
+  split: 'Настройка границ train, validation и test',
+  explain: 'Permutation importance, SHAP или анализ последовательности',
+  export: 'Архив результатов, прогнозы и отчёт',
 }
 
 export const nodeTypes = { research: WorkbenchNode }

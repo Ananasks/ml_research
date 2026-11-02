@@ -47,7 +47,7 @@ function FlowCanvasInner(props: Props) {
   >
     <Background color="var(--flow-dot)" gap={18} size={1} />
     <Controls />
-    <MiniMap pannable zoomable nodeColor={(node: Node) => ({ source: '#3978d5', profile: '#2ea9a1', preprocess: '#8963ce', model: '#16a36a', evaluation: '#e9a23b' }[(node.data as { kind?: string }).kind ?? ''] ?? '#94a3b8')} />
+    <MiniMap pannable zoomable nodeColor={(node: Node) => ({ source: '#3978d5', profile: '#2ea9a1', preprocess: '#8963ce', model: '#16a36a', evaluation: '#e9a23b', selection:'#3978d5', split:'#e9a23b', explain:'#8963ce', export:'#2ea9a1' }[(node.data as { kind?: string }).kind ?? ''] ?? '#94a3b8')} />
   </ReactFlow>
 }
 
