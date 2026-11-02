@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+*.pyc
+.DS_Store
+.local/
+node_modules/
+dist/
+frontend/dist/
+*.tsbuildinfo

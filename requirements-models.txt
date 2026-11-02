@@ -1,0 +1,4 @@
+# Optional model catalogue extensions; install on top of requirements.txt.
+xgboost>=2.1,<4
+catboost>=1.2,<2
+lightgbm>=4.3,<5

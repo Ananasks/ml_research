@@ -1,0 +1,46 @@
+[theme]
+baseFontSize = 14
+baseFontWeight = 400
+
+[theme.light]
+primaryColor = "#3978D5"
+backgroundColor = "#F8FAFC"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#172033"
+borderColor = "#E2E8F0"
+font = "sans serif"
+baseRadius = "medium"
+buttonRadius = "medium"
+showWidgetBorder = true
+chartCategoricalColors = ["#3978D5", "#16A36A", "#E9A23B", "#DC5252", "#8B6BD6", "#2EA9A1"]
+headingFontSizes = ["30px", "24px", "20px", "17px", "15px", "13px"]
+headingFontWeights = [650, 650, 600, 600, 600, 600]
+
+[theme.light.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F1F5F9"
+textColor = "#172033"
+borderColor = "#E2E8F0"
+
+[theme.dark]
+primaryColor = "#70A6F2"
+backgroundColor = "#111827"
+secondaryBackgroundColor = "#182235"
+textColor = "#E8EEF8"
+borderColor = "#2C3A50"
+font = "sans serif"
+baseRadius = "medium"
+buttonRadius = "medium"
+showWidgetBorder = true
+chartCategoricalColors = ["#70A6F2", "#43C58A", "#F2B95E", "#F07474", "#A992F0", "#45C2BA"]
+headingFontSizes = ["30px", "24px", "20px", "17px", "15px", "13px"]
+headingFontWeights = [650, 650, 600, 600, 600, 600]
+
+[theme.dark.sidebar]
+backgroundColor = "#0C1320"
+secondaryBackgroundColor = "#182235"
+textColor = "#E8EEF8"
+borderColor = "#2C3A50"
+
+[server]
+maxUploadSize = 200
