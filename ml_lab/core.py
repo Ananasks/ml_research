@@ -281,6 +281,7 @@ def run_experiments(df, features, target, task, candidates, params, progress=Non
             row.update(metrics,Статус='Готово',Предупреждения='\n'.join(dict.fromkeys(str(w.message) for w in caught)))
             comparison=pd.DataFrame({'Факт':actual.iloc[val_idx].to_numpy(),'Прогноз':pred,'Модель':f'{i+1} · {name}'},index=y.iloc[val_idx].index)
             if target_times is not None: comparison.insert(0,'Время',target_times.iloc[row_positions(X)[val_idx]].to_numpy())
+            comparison.insert(0,'Индекс',row_positions(X)[val_idx])
             validation_predictions.append(comparison)
             if not np.isfinite(metrics[metric]): raise ValueError('Валидационная метрика не определена.')
             if study: study.tell(trial,metrics[metric])
@@ -304,6 +305,7 @@ def run_experiments(df, features, target, task, candidates, params, progress=Non
         best['probability_classes']=best['pipeline'].classes_.astype(str).tolist()
     predictions=pd.DataFrame({'Факт':actual.iloc[test_idx].to_numpy(),'Прогноз':pred},index=y.iloc[test_idx].index)
     if target_times is not None: predictions.insert(0,'Время',target_times.iloc[row_positions(X)[test_idx]].to_numpy())
+    predictions.insert(0,'Индекс',row_positions(X)[test_idx])
     if df.attrs.get('evaluation_target') is not None:
         predictions['Цель после восстановления']=y.iloc[test_idx].to_numpy()
         predictions['Факт измерен']=actual.iloc[test_idx].notna().to_numpy()
@@ -331,6 +333,7 @@ def run_experiments(df, features, target, task, candidates, params, progress=Non
         model.prediction_breaks_=np.r_[True,np.diff(row_positions(X)[train_idx])!=1]
     train_pred=fitted.predict(X.iloc[train_idx])
     training=pd.DataFrame({'Факт':actual.iloc[train_idx].to_numpy(),'Прогноз':train_pred},index=X.iloc[train_idx].index)
+    training.insert(0,'Индекс',row_positions(X)[train_idx])
     if target_times is not None:
         training.insert(0,'Время',target_times.iloc[row_positions(X)[train_idx]].to_numpy())
         training.index=pd.DatetimeIndex(training['Время'],name='datetime')

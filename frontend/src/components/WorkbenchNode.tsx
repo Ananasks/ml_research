@@ -19,6 +19,7 @@ export type ToolConfig = {
   searchSpace?: Record<string, Record<string, unknown>>
   operation?: string
   method?: string
+  readOnly?: boolean
 }
 export type ToolNodeData = {
   kind: ToolKind
@@ -47,11 +48,11 @@ export function WorkbenchNode({ data, selected }: NodeProps<ToolNode>) {
   const Icon = iconByKind[data.kind] ?? Activity
   const status = data.status ?? 'idle'
   return <div className={`work-node node-${colors[data.kind]} ${selected ? 'is-selected' : ''} state-${status}`}>
-    {data.kind !== 'source' && <Handle type="target" position={Position.Left} className="work-handle" />}
+    {data.kind !== 'source' && !data.config.readOnly && <Handle type="target" position={Position.Left} className="work-handle" />}
     <div className="work-node-head"><span className="work-node-icon"><Icon size={16} /></span><span className="work-node-title">{data.label}</span><span className={`node-status-icon ${status}`}>{status === 'complete' ? <Check size={12} /> : status === 'running' ? <LoaderCircle size={12} className="spin" /> : status === 'error' ? <TriangleAlert size={12} /> : <Circle size={8} />}</span></div>
     <div className="work-node-description">{data.summary ?? summaryByKind[data.kind]}</div>
     <div className="work-node-status"><span className={`status-indicator ${status}`} />{statusLabels[status]}</div>
-    {!['export'].includes(data.kind) && <Handle type="source" position={Position.Right} className="work-handle" />}
+    {!['export'].includes(data.kind) && !data.config.readOnly && <Handle type="source" position={Position.Right} className="work-handle" />}
   </div>
 }
 

@@ -56,8 +56,8 @@ def daily_figure(result):
     tables=[(title,table) for title,table in tables if not table.empty]
     if not tables: return None
     regression=result['task']=='Регрессия'
-    rows=3 if regression else 1
-    labels=['MAE / RMSE · меньше — лучше','R² · ближе к 1 — лучше','MAPE, % · меньше — лучше'] if regression else ['Accuracy / F1 · ближе к 1 — лучше']
+    rows=2 if regression else 1
+    labels=['MAE / RMSE / R²','MAPE, % · меньше — лучше'] if regression else ['Accuracy / F1 · ближе к 1 — лучше']
     figure=make_subplots(rows=rows,cols=len(tables),shared_xaxes=True,
         subplot_titles=[title+'<br>'+label for label in labels for title,_ in tables],
         horizontal_spacing=.12,vertical_spacing=.13 if regression else .1)
@@ -67,14 +67,18 @@ def daily_figure(result):
         dates=table['День']
         metrics=['MAE','RMSE','R²','MAPE, %'] if regression else ['Accuracy','F1 macro']
         for metric in metrics:
-            row=({'MAE':1,'RMSE':1,'R²':2,'MAPE, %':3}[metric] if regression else 1)
-            figure.add_trace(go.Scatter(x=dates,y=table[metric],name=metric,legendgroup=metric,
-                showlegend=column==1,mode='lines+markers',connectgaps=False,
-                line=dict(color=colors[metric],width=2.5,dash='dash' if metric in ('RMSE','F1 macro') else 'solid'),
-                marker=dict(color=colors[metric],size=4),customdata=table[['Измерений']].to_numpy(),
-                hovertemplate='%{x|%d.%m.%Y}<br>'+metric+': %{y:.4g}<br>Измерений: %{customdata[0]}<extra></extra>'),row=row,col=column)
+            row=(2 if metric=='MAPE, %' else 1) if regression else 1
+            common=dict(x=dates,y=table[metric],name=metric,legendgroup=metric,
+                showlegend=column==1,customdata=table[['Измерений']].to_numpy(),
+                hovertemplate='%{x|%d.%m.%Y}<br>'+metric+': %{y:.4g}<br>Измерений: %{customdata[0]}<extra></extra>')
+            if metric=='MAPE, %':
+                trace=go.Scatter(**common,mode='lines+markers',connectgaps=False,
+                    line=dict(color=colors[metric],width=2.5),marker=dict(color=colors[metric],size=4))
+            else:
+                trace=go.Bar(**common,marker=dict(color=colors[metric]))
+            figure.add_trace(trace,row=row,col=column)
         for row in range(1,rows+1):
-            figure.update_yaxes(title_text=['Ошибка','R²','MAPE, %'][row-1] if regression else 'Доля',
+            figure.update_yaxes(title_text=['MAE / RMSE / R²','MAPE, %'][row-1] if regression else 'Доля',
                 row=row,col=column,showgrid=True,gridcolor='#e2e8f0',zerolinecolor='#94a3b8')
             figure.update_xaxes(title_text='Дата' if row==rows else None,type='date',nticks=7,
                 tickformat='%d.%m.%Y',tickangle=0,showgrid=False,row=row,col=column)
@@ -82,8 +86,17 @@ def daily_figure(result):
             figure.add_hline(y=1,line_dash='dot',line_color='#86b79a',row=2,col=column)
         else:
             figure.update_yaxes(range=[0,1.05],row=1,col=column)
+    if regression and len(tables)==2:
+        # Order axes by train/test column (top then bottom), matching the visual
+        # reading order of the paired panels instead of Plotly's row-major ids.
+        upper_right=figure.layout.yaxis2.to_plotly_json()
+        lower_left=figure.layout.yaxis3.to_plotly_json()
+        figure.update_layout(yaxis2=lower_left,yaxis3=upper_right)
+        for trace in figure.data:
+            if trace.yaxis=='y2': trace.yaxis='y3'
+            elif trace.yaxis=='y3': trace.yaxis='y2'
     figure.update_layout(title='Метрики по дням · обучение и тест',template='plotly_white',
-        height=920 if regression else 440,hovermode='x unified',
+        height=650 if regression else 440,hovermode='x unified',
         font=dict(family='Arial, sans-serif',size=13,color='#24344b'),
         legend=dict(orientation='h',y=1.08,x=0,title_text='Метрики'),
         margin=dict(t=160,b=65,l=65,r=35))

@@ -83,7 +83,7 @@ Windows PowerShell: вместо `source` выполните `.venv\Scripts\Acti
 
 ```bash
 source .venv/bin/activate
-uvicorn api.main:app --host 127.0.0.1 --port 8000
+python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
 Frontend во втором терминале из корня проекта:

@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import {
   Background, Controls, MiniMap, ReactFlow, ReactFlowProvider,
   type Connection, type Edge, type NodeChange, type EdgeChange, type Node,
@@ -19,7 +19,11 @@ type Props = {
 }
 
 function FlowCanvasInner(props: Props) {
-  const { screenToFlowPosition } = useReactFlow<ToolNode, Edge>()
+  const { screenToFlowPosition, fitView } = useReactFlow<ToolNode, Edge>()
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => { void fitView({ padding: .22 }) })
+    return () => cancelAnimationFrame(frame)
+  }, [fitView, props.nodes.length])
   const onDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault()
     const kind = event.dataTransfer.getData('application/mlrl-tool')

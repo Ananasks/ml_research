@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import uuid
 import base64
+import io
 import re
 import time
 from pathlib import Path
@@ -15,11 +16,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse, Response
 
-from ml_lab.core import DEFAULTS, run_experiments, generate_candidates
+from ml_lab.core import DEFAULTS, run_experiments, generate_candidates, eligible_rows
 from ml_lab.data import prepare_frame, read_dataset
+from ml_lab.datasets import combine_datasets, dataset_record
 from ml_lab.experiments import ExperimentStore, html_report, clean
 from ml_lab.model_registry import MODELS, MODEL_REGISTRY, OPTIONAL_STATUS, available_models, catalog_rows, documentation, online_catalog_status
-from ml_lab.time_index import detect_time_columns
+from ml_lab.time_index import detect_time_columns, parse_datetime_values
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
@@ -59,7 +61,9 @@ def get_dataset(name: str) -> pd.DataFrame:
     if not path.is_file():
         raise HTTPException(404, "Dataset не найден.")
     try:
-        return read_dataset(path.read_bytes(), name)
+        settings_path = path.with_suffix(path.suffix + ".json")
+        settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.is_file() else {}
+        return read_dataset(path.read_bytes(), name, **settings.get("settings", {}))
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -81,7 +85,9 @@ def datasets():
         if path.suffix.lower() not in {".csv", ".tsv", ".xlsx"}:
             continue
         try:
-            frame = read_dataset(path.read_bytes(), path.name)
+            settings_path = path.with_suffix(path.suffix + ".json")
+            metadata = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.is_file() else {}
+            frame = read_dataset(path.read_bytes(), path.name, **metadata.get("settings", {}))
             result.append({
                 "id": path.name,
                 "name": path.stem.replace("_", " ").title(),
@@ -90,6 +96,8 @@ def datasets():
                 "columns": len(frame.columns),
                 "columnNames": frame.columns.tolist(),
                 "timeColumns": detect_time_columns(frame),
+                "numericColumns": frame.select_dtypes(include="number").columns.tolist(),
+                "readSettings": metadata.get("settings", {}),
             })
         except Exception:
             continue
@@ -99,6 +107,23 @@ def datasets():
 class UploadRequest(BaseModel):
     name: str
     content: str
+    separator: str | None = None
+    encoding: str = "utf-8-sig"
+    decimal: str = "."
+    sheet: str | int = 0
+
+
+class InspectWorkbookRequest(BaseModel):
+    name: str
+    content: str
+
+
+class CombineDatasetsRequest(BaseModel):
+    datasets: list[str] = Field(min_length=2)
+    primary: str
+    method: str = "datetime"
+    dayfirst: bool = False
+    drop_invalid_time: bool = True
 
 
 @app.post("/api/datasets/upload")
@@ -110,13 +135,17 @@ def upload_dataset(request: UploadRequest):
     safe_stem = re.sub(r"[^\w.-]+", "_", Path(filename).stem, flags=re.UNICODE).strip("._") or "dataset"
     try:
         raw = base64.b64decode(request.content, validate=True)
-        frame = read_dataset(raw, filename)
+        settings = {"separator": request.separator, "encoding": request.encoding,
+                    "decimal": request.decimal, "sheet": request.sheet}
+        settings = {key: value for key, value in settings.items() if key != "separator" or value is not None}
+        frame = read_dataset(raw, filename, **settings)
     except Exception as exc:
         raise HTTPException(400, f"Не удалось прочитать файл: {exc}") from exc
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     digest = uuid.uuid5(uuid.NAMESPACE_OID, raw.hex()).hex[:10]
     stored_name = f"{safe_stem}-{digest}{suffix}"
     (UPLOAD_DIR / stored_name).write_bytes(raw)
+    (UPLOAD_DIR / f"{stored_name}.json").write_text(json.dumps({"settings": settings}, ensure_ascii=False), encoding="utf-8")
     return {
         "id": stored_name,
         "name": Path(filename).stem,
@@ -125,7 +154,55 @@ def upload_dataset(request: UploadRequest):
         "columns": len(frame.columns),
         "columnNames": frame.columns.tolist(),
         "timeColumns": detect_time_columns(frame),
+        "numericColumns": frame.select_dtypes(include="number").columns.tolist(),
+        "readSettings": settings,
     }
+
+
+@app.post("/api/datasets/inspect-workbook")
+def inspect_workbook(request: InspectWorkbookRequest):
+    filename = Path(request.name).name
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(400, "Для выбора листа нужен файл XLSX.")
+    try:
+        raw = base64.b64decode(request.content, validate=True)
+        return {"sheets": pd.ExcelFile(io.BytesIO(raw)).sheet_names}
+    except Exception as exc:
+        raise HTTPException(400, f"Не удалось прочитать книгу Excel: {exc}") from exc
+
+
+@app.post("/api/datasets/combine")
+def combine_dataset_request(request: CombineDatasetsRequest):
+    if request.method not in {"datetime", "rows"}:
+        raise HTTPException(400, "Выберите объединение по времени или по строкам.")
+    if request.primary not in request.datasets:
+        raise HTTPException(400, "Основной набор должен входить в список объединения.")
+    records = []
+    for name in request.datasets:
+        path = DATA_DIR / Path(name).name
+        if not path.is_file():
+            path = UPLOAD_DIR / Path(name).name
+        if not path.is_file() or path.name != name:
+            raise HTTPException(404, f"Набор «{name}» не найден.")
+        try:
+            settings_path = path.with_suffix(path.suffix + ".json")
+            metadata = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.is_file() else {}
+            records.append(dataset_record(path.read_bytes(), path.name, metadata.get("settings", {})))
+        except Exception as exc:
+            raise HTTPException(400, f"Не удалось открыть «{name}»: {exc}") from exc
+    records.sort(key=lambda record: record["name"] != request.primary)
+    try:
+        frame, diagnostics = combine_datasets(records, request.method, request.dayfirst, request.drop_invalid_time)
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        digest = uuid.uuid4().hex[:10]
+        stored_name = f"combined-{digest}.csv"
+        frame.to_csv(UPLOAD_DIR / stored_name, index=False)
+        (UPLOAD_DIR / f"{stored_name}.json").write_text(json.dumps({"settings": {}}, ensure_ascii=False), encoding="utf-8")
+        return {"dataset": {"id": stored_name, "name": f"Сборка · {len(records)} наборов", "file": stored_name,
+                "rows": len(frame), "columns": len(frame.columns), "columnNames": frame.columns.tolist(),
+                "timeColumns": detect_time_columns(frame), "numericColumns": frame.select_dtypes(include="number").columns.tolist()}, "diagnostics": diagnostics}
+    except Exception as exc:
+        raise HTTPException(422, f"Не удалось объединить наборы: {exc}") from exc
 
 
 class WorkflowRunRequest(BaseModel):
@@ -291,6 +368,8 @@ def run_workflow(request: WorkflowRunRequest):
                 raise HTTPException(422, f"Узел {identifier}: неизвестный способ предобработки.")
             preprocess_options.update(imputer_strategy=imputer, scaler=scaler)
             prep_config = {"calendar": True, **(config.get("preparation") or {})}
+            if workflow_selection.get("target"):
+                prep_config.setdefault("target", workflow_selection["target"])
             prep_config.pop("generate_index", None)
             if prep_config.get("target"):
                 prep_config["target"] = str(prep_config["target"])
@@ -341,6 +420,10 @@ def run_workflow(request: WorkflowRunRequest):
             if "error" in training_result:
                 failure = training_result.get("leaderboard", [{}])[0].get("Статус", training_result["error"])
                 raise HTTPException(422, f"Узел {identifier}: {failure}")
+            eligible_count = len(eligible_rows(prepared, features, target, task))
+            used_count = sum(int(training_result["sizes"].get(key, 0)) for key in ("train", "validation", "test"))
+            training_result["size_details"] = {"rawRows": len(predecessor), "preparedRows": len(prepared), "eligibleRows": eligible_count,
+                "usedRows": used_count, "availableOutside": max(0, eligible_count-used_count), "notEligible": max(0, len(prepared)-eligible_count)}
             training_id = uuid.uuid4().hex
             training_result.update(config={"dataset": by_id[str(source_nodes[0]["id"])].get("data", {}).get("config", {}).get("dataset"), "model": model_name, "task": task, "features": features, "target": target, "params": params}, source="workflow")
             RUNS[training_id] = training_result
@@ -402,7 +485,10 @@ def run_workflow(request: WorkflowRunRequest):
             "target": training_result["target"], "features": training_result["features"],
             "metrics": training_result["metrics"], "trainMetrics": training_result["train_metrics"], "validation": training_result.get("validation", {}),
             "sizes": training_result["sizes"], "leaderboard": training_result["leaderboard"],
+            "sizeDetails": training_result.get("size_details", {}),
             "predictions": _preview(predictions, 1000), "training": _preview(training_result["train_predictions"], 1000),
+            "validationPredictions": _preview(training_result["comparison"], 1000),
+            "config": workflow_config,
         },
     }
 
@@ -416,9 +502,12 @@ def dataset_preview(name: str, limit: int = 100):
         column = numeric[-1]
         time_columns = detect_time_columns(frame)
         if time_columns == ["datetime"]:
-            x_values = pd.to_datetime(frame["datetime"], errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S").tolist()
-        elif "date" in time_columns and "time" in time_columns:
-            x_values = pd.to_datetime(frame["date"].astype(str) + " " + frame["time"].astype(str), errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S").tolist()
+            parsed_time = parse_datetime_values(frame[time_columns[0]])
+            x_values = [None if pd.isna(value) else pd.Timestamp(value).strftime("%Y-%m-%dT%H:%M:%S") for value in parsed_time]
+        elif len(time_columns) == 2 and time_columns[0].lower() == "date" and time_columns[1].lower() == "time":
+            combined_time = frame[time_columns[0]].astype(str) + " " + frame[time_columns[1]].astype(str)
+            parsed_time = parse_datetime_values(combined_time)
+            x_values = [None if pd.isna(value) else pd.Timestamp(value).strftime("%Y-%m-%dT%H:%M:%S") for value in parsed_time]
         else:
             x_values = list(range(len(frame)))
         series = [{"x": x_values[i], "y": None if pd.isna(v) else float(v)} for i, v in enumerate(frame[column].head(500))]
@@ -617,6 +706,10 @@ def train(request: TrainRequest):
         if "error" in result:
             details = result.get("leaderboard", [{}])[0].get("Статус", result["error"])
             raise ValueError(details)
+        eligible_count = len(eligible_rows(prepared, request.features, request.target, request.task))
+        used_count = sum(int(result["sizes"].get(key, 0)) for key in ("train", "validation", "test"))
+        result["size_details"] = {"rawRows": len(raw), "preparedRows": len(prepared), "eligibleRows": eligible_count,
+            "usedRows": used_count, "availableOutside": max(0, eligible_count-used_count), "notEligible": max(0, len(prepared)-eligible_count)}
         run_id = uuid.uuid4().hex
         config = {"dataset": request.dataset, "model": request.model, "task": request.task,
             "features": request.features, "target": request.target, "params": params,
@@ -631,7 +724,8 @@ def train(request: TrainRequest):
             "target": result["target"], "features": result["features"], "metrics": result["metrics"],
             "trainMetrics": result["train_metrics"], "validation": result.get("validation", {}), "sizes": result["sizes"],
             "leaderboard": result["leaderboard"], "predictions": table_records(result["predictions"], 1000),
-            "training": table_records(result["train_predictions"], 1000),
+            "training": table_records(result["train_predictions"], 1000), "validationPredictions": table_records(result["comparison"], 1000),
+            "config": config, "sizeDetails": result["size_details"],
         }
     except HTTPException:
         raise

@@ -54,7 +54,7 @@ def normalize_time_index(df,time_columns=None,dayfirst=False,strict_dates=True,d
     order=time.sort_values(kind='stable').index
     frame=frame.loc[order].reset_index(drop=True);time=time.loc[order].reset_index(drop=True)
     # A timestamp is an index, never an estimator input column.
-    frame=frame.drop(columns=[c for c in frame if c.lower()=='datetime'])
+    frame=frame.drop(columns=[c for c in frame if c.lower()=='datetime' or c in time_columns])
     added=removed=0
     if frequency:
         delta=pd.Timedelta(frequency)

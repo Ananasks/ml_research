@@ -8,14 +8,15 @@ _HTML = (_ASSET_DIR / 'canvas.html').read_text(encoding='utf-8')
 _CSS = (_ASSET_DIR / 'canvas.css').read_text(encoding='utf-8')
 _JS = (_ASSET_DIR / 'canvas.js').read_text(encoding='utf-8')
 
-_render_canvas = st.components.v2.component(
-    'ml_research_workflow_canvas_v2', html=_HTML, css=_CSS, js=_JS,
-)
-
-
 def workflow_canvas(nodes, edges, selected=None, height=640, key=None):
     """Render a draggable visual graph and return graph edits from the browser."""
-    state = _render_canvas(
+    # Register against the active Streamlit runtime. AppTest creates a fresh
+    # component registry for each test runtime, so module-level registration
+    # leaves the component unavailable there.
+    render_canvas = st.components.v2.component(
+        'ml_research_workflow_canvas_v2', html=_HTML, css=_CSS, js=_JS,
+    )
+    state = render_canvas(
         data={'nodes': nodes, 'edges': edges, 'selected': selected, 'height': height},
         key=key,
         on_value_change=lambda: None,

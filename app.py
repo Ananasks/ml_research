@@ -1,4 +1,3 @@
-"""ML Research Lab: local research workflow over the shared ML engine."""
 import hashlib
 import io
 import json
