@@ -7,6 +7,9 @@ import base64
 import io
 import re
 import time
+import hashlib
+from collections import OrderedDict
+from threading import RLock
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +21,7 @@ from fastapi.responses import FileResponse, Response
 
 from ml_lab.core import DEFAULTS, run_experiments, generate_candidates, eligible_rows, split_data
 from ml_lab.data import prepare_frame, read_dataset
+from ml_lab.anomaly_detection import MODEL_DETECTORS
 from ml_lab.result_series import result_series, winning_validation
 from ml_lab.datasets import combine_datasets, dataset_record
 from ml_lab.experiments import ExperimentStore, html_report, clean
@@ -549,6 +553,10 @@ class PreparationRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+_PREPARED_MODELS = OrderedDict()
+_PREPARED_MODELS_LOCK = RLock()
+
+
 def prepare_dataset(raw, target, task, options):
     if target not in raw.columns:
         raise ValueError("Целевая колонка отсутствует в наборе данных.")
@@ -563,6 +571,17 @@ def prepare_dataset(raw, target, task, options):
         repair = preparation.get("repair")
         if repair and target in repair.get("columns", []):
             raise ValueError("Категории целевой классификации нельзя восстанавливать. Исключите Y из колонок восстановления.")
+    repair = preparation.get("repair") or {}
+    if repair.get("fill_method") == "model" or repair.get("anomaly_method") in MODEL_DETECTORS:
+        digest = hashlib.sha256(pd.util.hash_pandas_object(raw,index=True).values.tobytes()).hexdigest()
+        key = (digest, tuple(raw.columns), tuple(map(str,raw.dtypes)), json.dumps(preparation,sort_keys=True,default=str))
+        with _PREPARED_MODELS_LOCK:
+            if key not in _PREPARED_MODELS:
+                _PREPARED_MODELS[key] = prepare_frame(raw, **preparation)
+                if len(_PREPARED_MODELS) > 2:
+                    _PREPARED_MODELS.popitem(last=False)
+            _PREPARED_MODELS.move_to_end(key)
+            return _PREPARED_MODELS[key].copy(deep=True), preparation
     return prepare_frame(raw, **preparation), preparation
 
 
@@ -620,6 +639,7 @@ def preview_preparation(name: str, request: PreparationRequest):
                 "x": frame.index, "before": before.to_numpy(),
                 "after": frame.attrs["repair_values"][column].to_numpy(),
                 "anomaly": masks[column]["anomaly"],
+                "score": masks[column].get("anomaly_score", [None]*len(frame)),
             }).iloc[positions], len(positions))
         split = None
         split_error = None
