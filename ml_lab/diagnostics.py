@@ -60,7 +60,7 @@ def daily_figure(result):
     labels=['MAE / RMSE / R²','MAPE, % · меньше — лучше'] if regression else ['Accuracy / F1 · ближе к 1 — лучше']
     figure=make_subplots(rows=rows,cols=len(tables),shared_xaxes=True,
         subplot_titles=[title+'<br>'+label for label in labels for title,_ in tables],
-        horizontal_spacing=.12,vertical_spacing=.13 if regression else .1)
+        horizontal_spacing=.12,vertical_spacing=.24 if regression else .1)
     colors={'MAE':'#2563eb','RMSE':'#f97316','R²':'#16a34a','MAPE, %':'#9333ea',
             'Accuracy':'#2563eb','F1 macro':'#16a34a'}
     for column,(_,table) in enumerate(tables,1):
@@ -80,26 +80,17 @@ def daily_figure(result):
         for row in range(1,rows+1):
             figure.update_yaxes(title_text=['MAE / RMSE / R²','MAPE, %'][row-1] if regression else 'Доля',
                 row=row,col=column,showgrid=True,gridcolor='#e2e8f0',zerolinecolor='#94a3b8')
-            figure.update_xaxes(title_text='Дата' if row==rows else None,type='date',nticks=7,
-                tickformat='%d.%m.%Y',tickangle=0,showgrid=False,row=row,col=column)
+            figure.update_xaxes(title_text='Дата' if row==rows else None,type='date',nticks=4,
+                tickformat='%d.%m<br>%Y',tickangle=0,showgrid=False,row=row,col=column)
         if regression:
             figure.add_hline(y=1,line_dash='dot',line_color='#86b79a',row=2,col=column)
         else:
             figure.update_yaxes(range=[0,1.05],row=1,col=column)
-    if regression and len(tables)==2:
-        # Order axes by train/test column (top then bottom), matching the visual
-        # reading order of the paired panels instead of Plotly's row-major ids.
-        upper_right=figure.layout.yaxis2.to_plotly_json()
-        lower_left=figure.layout.yaxis3.to_plotly_json()
-        figure.update_layout(yaxis2=lower_left,yaxis3=upper_right)
-        for trace in figure.data:
-            if trace.yaxis=='y2': trace.yaxis='y3'
-            elif trace.yaxis=='y3': trace.yaxis='y2'
     figure.update_layout(title='Метрики по дням · обучение и тест',template='plotly_white',
-        height=650 if regression else 440,hovermode='x unified',
+        height=900 if regression else 500,hovermode='x unified',
         font=dict(family='Arial, sans-serif',size=13,color='#24344b'),
-        legend=dict(orientation='h',y=1.08,x=0,title_text='Метрики'),
-        margin=dict(t=160,b=65,l=65,r=35))
+        legend=dict(orientation='h',y=-.18,x=0,title_text='Метрики'),
+        margin=dict(t=100,b=150,l=80,r=45))
     return figure
 
 
@@ -186,3 +177,26 @@ def shap_local_figure(explanation, row):
         x=['Базовое значение']+labels+['Итог'],y=[base]+contributions+[0]))
     figure.update_layout(title='SHAP · вклад признаков в выбранный прогноз',yaxis_title=explanation['output'])
     return figure
+
+
+def daily_metric_figures(result):
+    """One axis per metric/split avoids mixing units and subplot label collisions."""
+    from ml_lab.result_series import winning_validation
+    figures = {}
+    for split, frame in [('train', result.get('train_predictions')),
+                         ('validation', winning_validation(result)), ('test', result.get('predictions'))]:
+        if frame is None or frame.empty:
+            continue
+        table = daily_metrics(frame, result['task'])
+        if table.empty:
+            continue
+        for metric in (['MAE', 'RMSE', 'R²', 'MAPE, %'] if result['task']=='Регрессия' else ['Accuracy', 'F1 macro']):
+            fig = go.Figure(go.Scatter(x=table['День'], y=table[metric], mode='lines+markers',
+                connectgaps=False, name=metric, customdata=table[['Измерений']].to_numpy(),
+                hovertemplate='%{x|%d.%m.%Y}<br>'+metric+': %{y:.4g}<br>Измерений: %{customdata[0]}<extra></extra>'))
+            fig.update_layout(height=340, template='plotly_white', showlegend=False,
+                margin=dict(l=65,r=25,t=25,b=70),
+                xaxis=dict(title='Дата · UTC', type='date', nticks=6, tickformat='%d.%m<br>%Y', automargin=True),
+                yaxis=dict(title=metric, automargin=True))
+            figures[f'daily:{split}:{metric}'] = fig
+    return figures

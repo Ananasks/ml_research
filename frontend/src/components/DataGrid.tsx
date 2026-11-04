@@ -13,5 +13,5 @@ type Props = {
 }
 
 export default function DataGrid({ rows, columns, rowHeight = 44, headerHeight = 42, className, defaultColDef = { sortable: true, filter: true, resizable: true } }: Props) {
-  return <div className={className}><AgGridReact<Record<string, unknown>> theme={themeQuartz} rowData={rows} columnDefs={columns} defaultColDef={defaultColDef} rowHeight={rowHeight} headerHeight={headerHeight} animateRows /></div>
+  return <div className={className} style={{height:'100%',width:'100%'}}><AgGridReact<Record<string, unknown>> theme={themeQuartz} rowData={rows} columnDefs={columns} defaultColDef={defaultColDef} rowHeight={rowHeight} headerHeight={headerHeight} animateRows /></div>
 }

@@ -23,7 +23,7 @@ class ResultPanelTests(unittest.TestCase):
         metrics=daily_figure(result)
         self.assertEqual([t.type for t in metrics.data],['bar','bar','bar','scatter']*2)
         np.testing.assert_allclose(metrics.data[3].y,daily_metrics(training,'Регрессия')['MAPE, %'])
-        self.assertEqual(metrics.data[3].yaxis,'y2')
+        self.assertEqual(metrics.data[3].yaxis,'y3')
         self.assertEqual(metrics.data[7].yaxis,'y4')
 
     def test_training_predictions_do_not_change_recurrent_test_context(self):

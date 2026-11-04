@@ -59,7 +59,7 @@ class DatasetLibrary:
         return record
 
 
-def combine_datasets(records,method='datetime',dayfirst=False,drop_invalid_time=True):
+def combine_datasets(records,method='datetime',dayfirst=None,drop_invalid_time=True):
     if not records: raise ValueError('Выберите хотя бы один dataset.')
     if len(records)==1: return records[0]['frame'].copy(),[]
     pieces=[]; diagnostics=[]

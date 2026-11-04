@@ -16,12 +16,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse, Response
 
-from ml_lab.core import DEFAULTS, run_experiments, generate_candidates, eligible_rows
+from ml_lab.core import DEFAULTS, run_experiments, generate_candidates, eligible_rows, split_data
 from ml_lab.data import prepare_frame, read_dataset
+from ml_lab.result_series import result_series, winning_validation
 from ml_lab.datasets import combine_datasets, dataset_record
 from ml_lab.experiments import ExperimentStore, html_report, clean
 from ml_lab.model_registry import MODELS, MODEL_REGISTRY, OPTIONAL_STATUS, available_models, catalog_rows, documentation, online_catalog_status
-from ml_lab.time_index import detect_time_columns, parse_datetime_values
+from ml_lab.time_index import detect_time_columns, parse_datetime_values, normalize_time_index
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
@@ -50,6 +51,7 @@ class TrainRequest(BaseModel):
     strategy: str = "manual"
     count: int = Field(default=5, ge=1, le=100)
     search_space: dict[str, Any] = Field(default_factory=dict)
+    candidates: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
 
 
 def get_dataset(name: str) -> pd.DataFrame:
@@ -122,7 +124,7 @@ class CombineDatasetsRequest(BaseModel):
     datasets: list[str] = Field(min_length=2)
     primary: str
     method: str = "datetime"
-    dayfirst: bool = False
+    dayfirst: bool | None = None
     drop_invalid_time: bool = True
 
 
@@ -488,7 +490,7 @@ def run_workflow(request: WorkflowRunRequest):
             "sizeDetails": training_result.get("size_details", {}),
             "predictions": _preview(predictions, 1000), "training": _preview(training_result["train_predictions"], 1000),
             "validationPredictions": _preview(training_result["comparison"], 1000),
-            "config": workflow_config,
+            "config": workflow_config, "series": result_series(training_result),
         },
     }
 
@@ -498,23 +500,20 @@ def dataset_preview(name: str, limit: int = 100):
     frame = get_dataset(name)
     numeric = frame.select_dtypes(include="number").columns.tolist()
     series = []
+    time_columns = detect_time_columns(frame)
+    times = parse_datetime_values(frame[time_columns].astype(str).agg(' '.join, axis=1)) if time_columns else None
+    time_values = [None if pd.isna(value) else pd.Timestamp(value).isoformat() for value in times] if times is not None else []
     if numeric:
         column = numeric[-1]
-        time_columns = detect_time_columns(frame)
-        if time_columns == ["datetime"]:
-            parsed_time = parse_datetime_values(frame[time_columns[0]])
-            x_values = [None if pd.isna(value) else pd.Timestamp(value).strftime("%Y-%m-%dT%H:%M:%S") for value in parsed_time]
-        elif len(time_columns) == 2 and time_columns[0].lower() == "date" and time_columns[1].lower() == "time":
-            combined_time = frame[time_columns[0]].astype(str) + " " + frame[time_columns[1]].astype(str)
-            parsed_time = parse_datetime_values(combined_time)
-            x_values = [None if pd.isna(value) else pd.Timestamp(value).strftime("%Y-%m-%dT%H:%M:%S") for value in parsed_time]
-        else:
-            x_values = list(range(len(frame)))
-        series = [{"x": x_values[i], "y": None if pd.isna(v) else float(v)} for i, v in enumerate(frame[column].head(500))]
+        points = pd.DataFrame({'x': times if times is not None else range(len(frame)), 'y': frame[column]})
+        if times is not None:
+            points = points.loc[points.x.notna()].sort_values('x', kind='stable')
+        step = max(1, (len(points)+2999)//3000)
+        series = table_records(points.iloc[::step], len(points))
     return {
         "columns": [{"field": str(c), "headerName": str(c)} for c in frame.columns],
         "rows": table_records(frame, max(1, min(limit, 5000))),
-        "totalRows": len(frame),
+        "totalRows": len(frame), "times": time_values[:max(1,min(limit,5000))],
         "chart": {"name": str(numeric[-1]) if numeric else "", "points": series},
     }
 
@@ -540,6 +539,120 @@ def download_dataset(name: str):
     if not path.is_file():
         raise HTTPException(404, "Dataset не найден.")
     return FileResponse(path, filename=path.name)
+
+
+class PreparationRequest(BaseModel):
+    target: str
+    task: str = "Регрессия"
+    preparation: dict[str, Any] = Field(default_factory=dict)
+    features: list[str] = Field(default_factory=list)
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+def prepare_dataset(raw, target, task, options):
+    if target not in raw.columns:
+        raise ValueError("Целевая колонка отсутствует в наборе данных.")
+    if task not in MODELS:
+        raise ValueError("Неизвестный тип задачи.")
+    preparation = {"calendar": True, **options, "target": target}
+    generated = preparation.pop("generate_index", None)
+    if generated is False:
+        preparation.pop("start_datetime", None)
+        preparation.pop("index_frequency", None)
+    if task == "Классификация":
+        repair = preparation.get("repair")
+        if repair and target in repair.get("columns", []):
+            raise ValueError("Категории целевой классификации нельзя восстанавливать. Исключите Y из колонок восстановления.")
+    return prepare_frame(raw, **preparation), preparation
+
+
+def preparation_params(prepared, features, target, task, options):
+    params = DEFAULTS | options
+    if prepared.attrs.get("time") is None:
+        params["split"] = "random"
+    if params.get("forecast_start"):
+        end = params.get("forecast_end") or params["forecast_start"]
+        if len(str(end)) == 10:
+            end = (pd.Timestamp(end) + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)).isoformat()
+        params["forecast_end"] = end
+        if params.get("size_mode") == "rows":
+            work = eligible_rows(prepared, features, target, task)
+            times = prepared.attrs.get("time")
+            if times is None:
+                raise ValueError("Для периода теста нужна дата.")
+            target_times = times.shift(-int(prepared.attrs.get("horizon", 0))).iloc[work.index]
+            params["test_rows"] = int(((target_times >= pd.Timestamp(params["forecast_start"])) &
+                                        (target_times <= pd.Timestamp(end))).sum())
+    return params
+
+
+@app.post("/api/datasets/{name}/prepare")
+def preview_preparation(name: str, request: PreparationRequest):
+    raw = get_dataset(name)
+    try:
+        frame, _ = prepare_dataset(raw, request.target, request.task, request.preparation)
+        feature_names = [str(c) for c in frame.columns if c != request.target]
+        time_keys = ("time_columns", "dayfirst", "strict_dates", "drop_invalid_time", "start_datetime", "index_frequency")
+        source_options = {key: value for key, value in request.preparation.items() if key in time_keys}
+        if request.preparation.get("generate_index") is False:
+            source_options.pop("start_datetime", None)
+            source_options.pop("index_frequency", None)
+        source, source_time, _ = normalize_time_index(raw, target=request.target, **source_options)
+        source_numeric = source.select_dtypes(include="number")
+        source_numeric = source_numeric.copy()
+        source_numeric.insert(0, "__source_x__", source_time if source_time is not None else range(len(source)))
+        source_step = max(1, (len(source) + 2999) // 3000)
+        source_sample = source_numeric.iloc[::source_step]
+
+        display = frame.reset_index() if isinstance(frame.index, pd.DatetimeIndex) else frame
+        # Charts cover the entire period; include all anomalous points as well as regular samples.
+        step = max(1, (len(frame) + 2999) // 3000)
+        positions = set(range(0, len(frame), step))
+        if len(frame):
+            positions.add(len(frame) - 1)
+        masks = frame.attrs.get("repair_masks", {})
+        for mask in masks.values():
+            positions.update(i for i, value in enumerate(mask["anomaly"]) if value)
+        positions = sorted(positions)
+        series = {}
+        for column, before in frame.attrs.get("repair_originals", {}).items():
+            series[column] = table_records(pd.DataFrame({
+                "x": frame.index, "before": before.to_numpy(),
+                "after": frame.attrs["repair_values"][column].to_numpy(),
+                "anomaly": masks[column]["anomaly"],
+            }).iloc[positions], len(positions))
+        split = None
+        split_error = None
+        if request.features:
+            try:
+                params = preparation_params(frame, request.features, request.target, request.task, request.params)
+                eligible = len(eligible_rows(frame, request.features, request.target, request.task))
+                _, _, indices = split_data(frame, request.features, request.target, request.task, params)
+                sizes = dict(zip(("train", "validation", "test"), map(len, indices)))
+                used = sum(sizes.values())
+                split = {**sizes, "eligible": eligible, "unused": len(frame)-used,
+                         "outside": eligible-used, "notEligible": len(frame)-eligible}
+            except (ValueError, KeyError) as exc:
+                split_error = str(exc)
+        return {"sourceRows": table_records(source_sample, len(source_sample)), "sourceSampled": source_step > 1, "features": feature_names, "columns": [{"field": str(c)} for c in display.columns],
+                "rows": table_records(display, 1000), "totalRows": len(frame),
+                "profile": _profile(frame), "repairRecords": frame.attrs.get("repair_records", []),
+                "repairSeries": series, "sampled": len(positions) < len(frame),
+                "diagnostics": {k: frame.attrs.get(k, 0) for k in
+                    ("invalid_time_rows", "grid_added_rows", "duplicates_removed", "time_source")},
+                "split": split, "splitError": split_error}
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.post("/api/datasets/{name}/prepared.csv")
+def export_preparation(name: str, request: PreparationRequest):
+    try:
+        frame, _ = prepare_dataset(get_dataset(name), request.target, request.task, request.preparation)
+        return Response(frame.to_csv(index=isinstance(frame.index, pd.DatetimeIndex)).encode("utf-8-sig"),
+                        media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="prepared_data.csv"'})
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @app.get("/api/models")
@@ -677,16 +790,10 @@ def train(request: TrainRequest):
     if request.target not in raw.columns:
         raise HTTPException(400, "Целевая колонка отсутствует в наборе данных.")
     try:
-        preparation = {"calendar": True, "target": request.target, **request.preparation}
-        preparation.pop("generate_index", None)
-        prepared = prepare_frame(raw, **preparation)
+        prepared, preparation = prepare_dataset(raw, request.target, request.task, request.preparation)
         if any(feature not in prepared.columns for feature in request.features):
             raise ValueError("Один или несколько выбранных признаков отсутствуют после подготовки данных.")
-        params = DEFAULTS | request.params
-        if params.get("forecast_end") and len(str(params["forecast_end"])) == 10:
-            params["forecast_end"] = (pd.Timestamp(params["forecast_end"]) + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)).isoformat()
-        if not detect_time_columns(raw) and not preparation.get("start_datetime"):
-            params["split"] = "random"
+        params = preparation_params(prepared, request.features, request.target, request.task, request.params)
         model_params = {key: value for key, value in request.params.items() if key in MODEL_REGISTRY[request.model]["parameters"]}
         if request.strategy == "manual":
             candidates_to_run = [{"name": request.model, "params": model_params}]
@@ -694,7 +801,16 @@ def train(request: TrainRequest):
         elif request.strategy == "range":
             space = request.search_space or {key: schema for key, schema in MODEL_REGISTRY[request.model]["parameters"].items() if schema.get("type") != "layers"}
             spaces = {request.model: {**space, "__fixed__": model_params}}
-            candidates_to_run = generate_candidates(request.task, [request.model], request.count, params, spaces)
+            if request.candidates:
+                allowed = set(MODEL_REGISTRY[request.model]["parameters"])
+                for candidate in request.candidates:
+                    if candidate.get("name") != request.model or not isinstance(candidate.get("params"), dict):
+                        raise ValueError("Варианты должны относиться к выбранной модели и содержать параметры.")
+                    if set(candidate["params"]) - allowed:
+                        raise ValueError("В варианте есть неизвестные параметры модели.")
+                candidates_to_run = request.candidates
+            else:
+                candidates_to_run = generate_candidates(request.task, [request.model], request.count, params, spaces)
             search = None
         elif request.strategy == "optuna":
             space = request.search_space or {key: schema for key, schema in MODEL_REGISTRY[request.model]["parameters"].items() if schema.get("type") != "layers"}
@@ -714,7 +830,7 @@ def train(request: TrainRequest):
         config = {"dataset": request.dataset, "model": request.model, "task": request.task,
             "features": request.features, "target": request.target, "params": params,
             "preparation": preparation, "strategy": request.strategy, "count": request.count,
-            "search_space": request.search_space}
+            "search_space": request.search_space, "candidates": request.candidates}
         result.update(config=config, source="react")
         RUNS[run_id] = result
         record = STORE.save(result, config)
@@ -724,8 +840,8 @@ def train(request: TrainRequest):
             "target": result["target"], "features": result["features"], "metrics": result["metrics"],
             "trainMetrics": result["train_metrics"], "validation": result.get("validation", {}), "sizes": result["sizes"],
             "leaderboard": result["leaderboard"], "predictions": table_records(result["predictions"], 1000),
-            "training": table_records(result["train_predictions"], 1000), "validationPredictions": table_records(result["comparison"], 1000),
-            "config": config, "sizeDetails": result["size_details"],
+            "training": table_records(result["train_predictions"], 1000), "validationPredictions": table_records(winning_validation(result), 1000),
+            "config": config, "sizeDetails": result["size_details"], "series": result_series(result),
         }
     except HTTPException:
         raise
@@ -774,6 +890,14 @@ def explain_experiment(run_id: str, request: dict[str, Any]):
         raise HTTPException(422, str(exc)) from exc
 
 
+@app.get("/api/experiments/{run_id}/series")
+def experiment_series(run_id: str):
+    result = RUNS.get(run_id)
+    if result is None:
+        raise HTTPException(404, "Полные временные ряды недоступны после перезапуска API. Повторите обучение, чтобы обновить графики.")
+    return result_series(result)
+
+
 @app.get("/api/experiments/{run_id}/diagnostics")
 def experiment_diagnostics(run_id: str):
     result = RUNS.get(run_id)
@@ -781,7 +905,8 @@ def experiment_diagnostics(run_id: str):
         raise HTTPException(404, "Результат доступен только в текущем процессе API.")
     from ml_lab.diagnostics import (timeline_figure, daily_figure, regression_figures,
         classification_figures, probability_figures, comparison_figures, training_figure)
-    figures = {"timeline": timeline_figure(result)}
+    from ml_lab.diagnostics import daily_metric_figures
+    figures = {"timeline": timeline_figure(result), **daily_metric_figures(result)}
     daily = daily_figure(result)
     if daily is not None: figures["daily"] = daily
     quality = regression_figures(result["predictions"]) if result["task"] == "Регрессия" else classification_figures(result)

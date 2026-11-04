@@ -25,7 +25,7 @@ def read_dataset(raw, name, separator=None, encoding='utf-8-sig', decimal='.', s
     return df
 
 
-def prepare_frame(df, time_columns=None, dayfirst=False, calendar=True, target=None, lags=(), horizon=0, drop_invalid_time=False, strict_dates=True, frequency=None,
+def prepare_frame(df, time_columns=None, dayfirst=None, calendar=True, target=None, lags=(), horizon=0, drop_invalid_time=False, strict_dates=True, frequency=None,
                   duplicate_policy="error", rolling_windows=(), rolling_stats=("mean","std"), difference=False, start_datetime=None, index_frequency=None, repair=None,
                   feature_columns=None, ewm_spans=(), difference_lags=(), partial_windows=False, quality_flags=False):
     frame,time,diagnostics=normalize_time_index(df,time_columns,dayfirst,strict_dates,drop_invalid_time,

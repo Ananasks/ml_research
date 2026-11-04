@@ -2,27 +2,48 @@
 import pandas as pd
 
 def detect_time_columns(df):
-    lookup = {c.lower(): c for c in df.columns}
+    lookup = {str(c).strip().lower(): c for c in df.columns}
     if 'datetime' in lookup:
         return [lookup['datetime']]
     if 'date' in lookup and 'time' in lookup:
         return [lookup['date'], lookup['time']]
+    if 'date' in lookup:
+        return [lookup['date']]
     return []
 
 
-def parse_datetime_values(text,dayfirst=False,strict=True):
+def parse_datetime_values(text,dayfirst=None,strict=True):
+    """Parse one consistent date convention per column, never invent a date for a clock.
+
+    Research CSVs use ISO datetime (MUF/Athens) or DD-MM-YYYY + time (TEC/CB).
+    ISO year-first strings are never interpreted with day/month reversal.
+    """
     text=text.astype(str).str.strip()
+    iso=text.str.match(r'^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:\D|$)')
     full_date=text.str.contains(r'(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4})',regex=True)
     clock_only=text.str.fullmatch(r'\d{1,3}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?')
     valid=(full_date if strict else ~clock_only) & ~clock_only
-    return pd.to_datetime(text.where(valid),errors='coerce',dayfirst=dayfirst,format='mixed',utc=True).dt.tz_localize(None)
+    if dayfirst is None:
+        parts=text.str.extract(r'^(\d{1,2})([-/.])(\d{1,2})[-/.]\d{4}')
+        first=pd.to_numeric(parts[0],errors='coerce')
+        second=pd.to_numeric(parts[2],errors='coerce')
+        if first.gt(12).any():
+            dayfirst=True
+        elif second.gt(12).any():
+            dayfirst=False
+        else:
+            # Day-first is the documented convention of the research DD-MM-YYYY files.
+            dayfirst=bool(parts[1].isin(['-','.']).any())
+    parsed=pd.to_datetime(text.where(valid & ~iso),errors='coerce',dayfirst=bool(dayfirst),format='mixed',utc=True)
+    parsed.loc[iso]=pd.to_datetime(text.where(valid & iso).loc[iso],errors='coerce',format='mixed',utc=True)
+    return parsed.dt.tz_localize(None)
 
 
 
-def normalize_time_index(df,time_columns=None,dayfirst=False,strict_dates=True,drop_invalid_time=False,
+def normalize_time_index(df,time_columns=None,dayfirst=None,strict_dates=True,drop_invalid_time=False,
                          frequency=None,duplicate_policy='error',start_datetime=None,index_frequency=None,target=None):
     detected=detect_time_columns(df)
-    if detected and detected[0].lower()=='datetime': time_columns=detected
+    if detected and str(detected[0]).strip().lower()=='datetime': time_columns=detected
     elif not time_columns: time_columns=detected
     frame=df.copy();frame.attrs={}
     source='none'
@@ -30,7 +51,7 @@ def normalize_time_index(df,time_columns=None,dayfirst=False,strict_dates=True,d
         if target in time_columns: raise ValueError('Целевая колонка не может быть колонкой времени.')
         text=frame[list(time_columns)].astype(str).agg(' '.join,axis=1).reset_index(drop=True)
         time=parse_datetime_values(text,dayfirst,strict_dates)
-        source='datetime' if time_columns[0].lower()=='datetime' else 'date + time'
+        source='datetime' if str(time_columns[0]).strip().lower()=='datetime' else 'date + time' if len(time_columns)>1 else 'date'
     elif isinstance(df.index,pd.DatetimeIndex):
         time=pd.Series(pd.to_datetime(df.index,utc=True).tz_localize(None))
         source='DatetimeIndex'
@@ -54,7 +75,7 @@ def normalize_time_index(df,time_columns=None,dayfirst=False,strict_dates=True,d
     order=time.sort_values(kind='stable').index
     frame=frame.loc[order].reset_index(drop=True);time=time.loc[order].reset_index(drop=True)
     # A timestamp is an index, never an estimator input column.
-    frame=frame.drop(columns=[c for c in frame if c.lower()=='datetime' or c in time_columns])
+    frame=frame.drop(columns=[c for c in frame if str(c).strip().lower()=='datetime' or c in time_columns])
     added=removed=0
     if frequency:
         delta=pd.Timedelta(frequency)
