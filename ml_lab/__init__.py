@@ -1,1 +1,1 @@
-"""ML Research Lab package."""
+"""ML Research package."""

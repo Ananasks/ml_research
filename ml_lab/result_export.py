@@ -79,7 +79,7 @@ def results_bundle(result,styles=None,include_model=True):
         if include_model:
             model=io.BytesIO();joblib.dump(dict(pipeline=result['pipeline'],config=result['config']),model)
             archive.writestr('model.joblib',model.getvalue())
-        archive.writestr('README.txt','ML Research Lab\nМетрики test рассчитаны по исходным измерениям. Train — качество подгонки.\n'
+        archive.writestr('README.txt','ML Research\nМетрики test рассчитаны по исходным измерениям. Train — качество подгонки.\n'
             'ZIP содержит только уже рассчитанные объяснения; новые объяснения не запускаются.\n'
             'charts/*.html открываются без интернета; JSON хранит точные значения и оформление.\n'
             'Локальный SHAP соответствует выбранной строке (по умолчанию первой); все вклады сохранены в CSV.\n')

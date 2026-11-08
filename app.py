@@ -31,8 +31,8 @@ def cached_prepare_frame(raw, preparation):
 
 
 ROOT = Path(__file__).resolve().parent
-st.set_page_config(page_title='ML Research Lab', page_icon='🧪', layout='wide')
-st.title('🧪 ML Research Lab')
+st.set_page_config(page_title='ML Research', page_icon='🧪', layout='wide')
+st.title('🧪 ML Research')
 st.caption('Данные → признаки → модели → честная оценка → исследовательский отчёт')
 st.session_state.setdefault('history', [])
 store = ExperimentStore(ROOT / '.local' / 'experiments.sqlite3')
@@ -51,7 +51,7 @@ navigation_sections = {
         'Журнал': 'journal',
     },
 }
-st.sidebar.markdown('### :material/science: ML Research Lab')
+st.sidebar.markdown('### :material/science: ML Research')
 st.sidebar.caption('Рабочее пространство исследования')
 selected_section = st.sidebar.selectbox(
     'Раздел', list(navigation_sections), key='navigation_section',

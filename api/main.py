@@ -35,7 +35,7 @@ WORKFLOW_DIR = ROOT / ".local" / "workflows"
 STORE = ExperimentStore(ROOT / ".local" / "experiments.sqlite3")
 RUNS: dict[str, dict[str, Any]] = {}
 RUN_CONFIGS: dict[str, dict[str, Any]] = {}
-app = FastAPI(title="ML Research Lab API", version="0.1.0")
+app = FastAPI(title="ML Research API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -81,7 +81,7 @@ def table_records(frame: pd.DataFrame, limit: int = 100) -> list[dict[str, Any]]
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "ML Research Lab", "backend": "python"}
+    return {"status": "ok", "service": "ML Research", "backend": "python"}
 
 
 @app.get("/api/datasets")
@@ -571,8 +571,12 @@ def prepare_dataset(raw, target, task, options):
         repair = preparation.get("repair")
         if repair and target in repair.get("columns", []):
             raise ValueError("Категории целевой классификации нельзя восстанавливать. Исключите Y из колонок восстановления.")
+    if task == "Классификация":
+        for stage in ("anomaly_stage", "restoration"):
+            if target in (preparation.get(stage) or {}).get("columns", []):
+                raise ValueError("Категории целевой классификации нельзя восстанавливать.")
     repair = preparation.get("repair") or {}
-    if repair.get("fill_method") == "model" or repair.get("anomaly_method") in MODEL_DETECTORS:
+    if preparation.get("restoration") or preparation.get("anomaly_stage") or repair.get("fill_method") == "model" or repair.get("anomaly_method") in MODEL_DETECTORS:
         digest = hashlib.sha256(pd.util.hash_pandas_object(raw,index=True).values.tobytes()).hexdigest()
         key = (digest, tuple(raw.columns), tuple(map(str,raw.dtypes)), json.dumps(preparation,sort_keys=True,default=str))
         with _PREPARED_MODELS_LOCK:
@@ -654,7 +658,25 @@ def preview_preparation(name: str, request: PreparationRequest):
                          "outside": eligible-used, "notEligible": len(frame)-eligible}
             except (ValueError, KeyError) as exc:
                 split_error = str(exc)
-        return {"sourceRows": table_records(source_sample, len(source_sample)), "sourceSampled": source_step > 1, "features": feature_names, "columns": [{"field": str(c)} for c in display.columns],
+        times=frame.attrs.get("time")
+        recommendations={"lags":[1,2,3],"rolling_windows":[6,12],"calendar_features":[],"notes":[]}
+        if times is not None and len(times)>1:
+            gaps=pd.Series(times).drop_duplicates().sort_values().diff().dropna()
+            if len(gaps):
+                step=gaps.mode().iloc[0]
+                recommendations["step"]=str(step)
+                daily=max(1,round(pd.Timedelta(days=1)/step))
+                recommendations["notes"].append(f"Наиболее частый шаг: {step}. Суточный цикл — примерно {daily} строк.")
+                recommendations["calendar_features"]=["calendar_dayofweek","calendar_year_sin","calendar_year_cos"]
+                if step<pd.Timedelta(days=1):
+                    recommendations["calendar_features"] += ["calendar_hour_sin","calendar_hour_cos"]
+                if daily>=2 and daily<len(frame)//3:
+                    recommendations["lags"].append(daily)
+                    recommendations["rolling_windows"].append(daily)
+        recommendations["lags"]=[n for n in recommendations["lags"] if n<max(2,len(frame)//3)]
+        recommendations["rolling_windows"]=[n for n in recommendations["rolling_windows"] if n<max(3,len(frame)//3)]
+        recommendations["notes"].append(f"Доступно {len(frame)} строк и {len(source_numeric.columns)-1} числовых колонок. Окна рекомендованы с запасом истории; полезность проверьте на валидации.")
+        return {"recommendations":recommendations,"sourceRows": table_records(source_sample, len(source_sample)), "sourceSampled": source_step > 1, "features": feature_names, "columns": [{"field": str(c)} for c in display.columns],
                 "rows": table_records(display, 1000), "totalRows": len(frame),
                 "profile": _profile(frame), "repairRecords": frame.attrs.get("repair_records", []),
                 "repairSeries": series, "sampled": len(positions) < len(frame),

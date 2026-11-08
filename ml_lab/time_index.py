@@ -78,6 +78,10 @@ def normalize_time_index(df,time_columns=None,dayfirst=None,strict_dates=True,dr
     frame=frame.drop(columns=[c for c in frame if str(c).strip().lower()=='datetime' or c in time_columns])
     added=removed=0
     if frequency:
+        if frequency=='auto':
+            gaps=time.drop_duplicates().sort_values().diff().dropna()
+            if gaps.empty: raise ValueError('Недостаточно дат для определения шага. Укажите шаг вручную.')
+            frequency=gaps.mode().iloc[0]
         delta=pd.Timedelta(frequency)
         if delta<=pd.Timedelta(0): raise ValueError('Шаг сетки должен быть положительным.')
         duplicated=time.duplicated(keep='last')

@@ -58,10 +58,10 @@ def html_report(result, config):
     if result.get('evaluation_sizes'):
         sections.insert(3, ('Число исходных измерений для метрик',pd.DataFrame([result['evaluation_sizes']])))
     body = ''.join('<h2>'+escape(title)+'</h2>'+frame.to_html(index=False, escape=True) for title,frame in sections)
-    return ('<!doctype html><html lang="ru"><meta charset="utf-8"><title>ML Research Lab</title>'
+    return ('<!doctype html><html lang="ru"><meta charset="utf-8"><title>ML Research</title>'
         '<style>body{font:15px system-ui;max-width:1200px;margin:40px auto;padding:20px;color:#182536}'
         'table{border-collapse:collapse;width:100%;overflow-wrap:anywhere}td,th{border:1px solid #ddd;padding:8px;text-align:left}'
-        'pre{white-space:pre-wrap}h1,h2{color:#176878}</style><h1>ML Research Lab</h1><p>'
+        'pre{white-space:pre-wrap}h1,h2{color:#176878}</style><h1>ML Research</h1><p>'
         +escape(result['name'])+' · '+escape(result['target'])+'</p>'
         '<p>Победитель выбран по validation. Финальные метрики относятся к test. '
         'Восстановленные Y не входят в метрики validation/test: используются исходные измерения. '

@@ -220,7 +220,7 @@ function App() {
 
   return <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><Beaker size={19} /></div><div className="brand-copy"><strong>research<span>lab</span></strong><small>ML workspace</small></div><button className="icon-button sidebar-collapse" onClick={() => setSidebarOpen(false)} title="Свернуть меню"><PanelLeftClose size={17} /></button></div>
+      <div className="brand"><div className="brand-mark"><Beaker size={19} /></div><div className="brand-copy"><strong>ML <span>Research</span></strong><small>ML workspace</small></div><button className="icon-button sidebar-collapse" onClick={() => setSidebarOpen(false)} title="Свернуть меню"><PanelLeftClose size={17} /></button></div>
       <Button className="new-project" onClick={() => setPage('experiment')}><Plus size={16} /> Настроить модель <span className="shortcut">⌘ N</span></Button>
       <nav className="side-nav">
         {navGroups.map(group => <div className="nav-group" key={group.label}><div className="nav-heading">{group.label}</div>{group.items.map(item => {
@@ -260,7 +260,7 @@ function App() {
           {page === 'settings' && <SettingsPage dark={dark} setDark={setDark} apiReady={apiReady} />}
         </motion.div>
       </AnimatePresence></div>
-      <footer className="app-footer"><span>ML Research Lab <span className="footer-version">v0.1</span></span><span><span className="footer-dot" /> Все данные обрабатываются локально</span><span>Python ML Engine</span></footer>
+      <footer className="app-footer"><span>ML Research <span className="footer-version">v0.1</span></span><span><span className="footer-dot" /> Все данные обрабатываются локально</span><span>Python ML Engine</span></footer>
     </main>
   </div>
 }

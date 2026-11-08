@@ -27,7 +27,7 @@ def read_dataset(raw, name, separator=None, encoding='utf-8-sig', decimal='.', s
 
 def prepare_frame(df, time_columns=None, dayfirst=None, calendar=True, target=None, lags=(), horizon=0, drop_invalid_time=False, strict_dates=True, frequency=None,
                   duplicate_policy="error", rolling_windows=(), rolling_stats=("mean","std"), difference=False, start_datetime=None, index_frequency=None, repair=None,
-                  feature_columns=None, ewm_spans=(), difference_lags=(), partial_windows=False, quality_flags=False):
+                  feature_columns=None, ewm_spans=(), difference_lags=(), partial_windows=False, quality_flags=False, anomaly_stage=None, restoration=None, calendar_features=None):
     frame,time,diagnostics=normalize_time_index(df,time_columns,dayfirst,strict_dates,drop_invalid_time,
         frequency,duplicate_policy,start_datetime,index_frequency,target)
     frame=frame.replace([np.inf,-np.inf],np.nan)
@@ -35,6 +35,9 @@ def prepare_frame(df, time_columns=None, dayfirst=None, calendar=True, target=No
     repair_records=[]; repair_masks={}; repair_originals={}
     if repair:
         frame,repair_records,repair_masks,repair_originals=repair_signals(frame,time,repair)
+    if anomaly_stage or restoration:
+        from ml_lab.preparation_stages import staged_repair
+        frame,repair_records,repair_masks,repair_originals=staged_repair(frame,time,anomaly_stage,restoration)
     repaired_values={column:frame[column].copy() for column in repair_originals}
     if calendar and time is not None:
         for name, values in {'hour': time.dt.hour, 'minute': time.dt.minute,
@@ -51,6 +54,8 @@ def prepare_frame(df, time_columns=None, dayfirst=None, calendar=True, target=No
         frame['calendar_week_sin']=np.sin(2*np.pi*(time.dt.dayofweek+hour/24)/7)
         frame['calendar_week_cos']=np.cos(2*np.pi*(time.dt.dayofweek+hour/24)/7)
         frame['calendar_weekend']=(time.dt.dayofweek>=5).astype(int)
+    if calendar_features is not None:
+        frame=frame.drop(columns=[c for c in frame if c.startswith('calendar_') and c not in calendar_features])
     history_columns=[]
     history_sources={}
     persistence=None
@@ -107,13 +112,14 @@ def prepare_frame(df, time_columns=None, dayfirst=None, calendar=True, target=No
     if horizon:
         # Features at t predict y[t+h]; purge the boundary before splitting later.
         frame[target] = frame[target].shift(-int(horizon))
-    if repair and original_target is not None:
+    if (repair or anomaly_stage or restoration) and original_target is not None:
         frame.attrs['evaluation_target']=original_target.shift(-int(horizon)) if horizon else original_target
     frame.attrs['repair_values']=repaired_values
     frame.attrs['repair_records']=repair_records
     frame.attrs['repair_masks']=repair_masks
     frame.attrs['repair_originals']=repair_originals
     frame.attrs['causal_repair']=bool(repair)
+    frame.attrs['retrospective_repair']=bool(anomaly_stage or restoration)
     frame.attrs['history_columns']=history_columns
     frame.attrs['history_sources']=history_sources
     frame.attrs['persistence']=persistence
