@@ -75,14 +75,15 @@ def normalize_time_index(df,time_columns=None,dayfirst=None,strict_dates=True,dr
     order=time.sort_values(kind='stable').index
     frame=frame.loc[order].reset_index(drop=True);time=time.loc[order].reset_index(drop=True)
     # A timestamp is an index, never an estimator input column.
-    frame=frame.drop(columns=[c for c in frame if str(c).strip().lower()=='datetime' or c in time_columns])
-    added=removed=0
+    frame=frame.drop(columns=[c for c in frame if str(c).strip().lower() in ('datetime','index','level_0','unnamed: 0') or c in time_columns])
+    added=removed=0; resolved_step=None
     if frequency:
         if frequency=='auto':
             gaps=time.drop_duplicates().sort_values().diff().dropna()
             if gaps.empty: raise ValueError('Недостаточно дат для определения шага. Укажите шаг вручную.')
             frequency=gaps.mode().iloc[0]
         delta=pd.Timedelta(frequency)
+        resolved_step=str(delta)
         if delta<=pd.Timedelta(0): raise ValueError('Шаг сетки должен быть положительным.')
         duplicated=time.duplicated(keep='last')
         if duplicated.any():
@@ -95,4 +96,4 @@ def normalize_time_index(df,time_columns=None,dayfirst=None,strict_dates=True,dr
         added=len(grid)-len(frame)
         frame.index=pd.DatetimeIndex(time)
         frame=frame.reindex(grid).reset_index(drop=True);time=pd.Series(grid)
-    return frame,time,dict(invalid_time_rows=invalid,grid_added_rows=added,duplicates_removed=removed,time_source=source)
+    return frame,time,dict(invalid_time_rows=invalid,grid_added_rows=added,duplicates_removed=removed,time_source=source,time_step=resolved_step)

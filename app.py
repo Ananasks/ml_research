@@ -76,7 +76,19 @@ global_ui_style = """
 [data-testid="stWidgetLabel"] p { font-size: .88rem; line-height: 1.3; }
 [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"] { min-width: 0; }
 """
-st.markdown(f'<style>{global_ui_style}{page_visibility}</style>', unsafe_allow_html=True)
+explanation_style = """
+[data-testid="stCaptionContainer"] {
+    border: 0; padding: 0; background: transparent;
+    color: #64748b; font-size: 14px; line-height: 1.5; margin: 8px 0;
+}
+[data-testid="stWidgetLabel"] p {font-size:16px;font-weight:500;line-height:1.5;}
+[data-testid="stMarkdownContainer"] h2, [data-testid="stMarkdownContainer"] h3 {font-size:24px;font-weight:600;}
+[data-testid="stMetricValue"] {font-size:30px;font-weight:600;}
+@media (prefers-color-scheme: dark) {
+    [data-testid="stCaptionContainer"] {color:#a4b1c5;}
+}
+"""
+st.markdown(f'<style>{global_ui_style}{page_visibility}{explanation_style}</style>', unsafe_allow_html=True)
 with st.container(key='page_descriptions'):
     render_model_descriptions()
 with st.container(key='page_journal'):

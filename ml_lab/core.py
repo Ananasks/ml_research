@@ -280,6 +280,9 @@ def run_experiments(df, features, target, task, candidates, params, progress=Non
             row['Измерений validation']=int(actual.iloc[val_idx].notna().sum())
             row.update(metrics,Статус='Готово',Предупреждения='\n'.join(dict.fromkeys(str(w.message) for w in caught)))
             comparison=pd.DataFrame({'Факт':actual.iloc[val_idx].to_numpy(),'Прогноз':pred,'Модель':f'{i+1} · {name}'},index=y.iloc[val_idx].index)
+            if df.attrs.get('evaluation_target') is not None:
+                comparison['Цель после восстановления']=y.iloc[val_idx].to_numpy()
+                comparison['Факт измерен']=actual.iloc[val_idx].notna().to_numpy()
             if target_times is not None: comparison.insert(0,'Время',target_times.iloc[row_positions(X)[val_idx]].to_numpy())
             comparison.insert(0,'Индекс',row_positions(X)[val_idx])
             validation_predictions.append(comparison)
@@ -333,6 +336,9 @@ def run_experiments(df, features, target, task, candidates, params, progress=Non
         model.prediction_breaks_=np.r_[True,np.diff(row_positions(X)[train_idx])!=1]
     train_pred=fitted.predict(X.iloc[train_idx])
     training=pd.DataFrame({'Факт':actual.iloc[train_idx].to_numpy(),'Прогноз':train_pred},index=X.iloc[train_idx].index)
+    if df.attrs.get('evaluation_target') is not None:
+        training['Цель после восстановления']=y.iloc[train_idx].to_numpy()
+        training['Факт измерен']=actual.iloc[train_idx].notna().to_numpy()
     training.insert(0,'Индекс',row_positions(X)[train_idx])
     if target_times is not None:
         training.insert(0,'Время',target_times.iloc[row_positions(X)[train_idx]].to_numpy())

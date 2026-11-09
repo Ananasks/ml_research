@@ -27,7 +27,7 @@ def plot_records(frame, limit=6000):
         frame = frame.sort_values('Индекс', kind='stable')
     if len(frame) > limit:
         # Keep the full period and extrema of fact, prediction and baseline in each bin.
-        fields = [c for c in ('Факт', 'Прогноз', 'Базовый прогноз') if c in frame]
+        fields = [c for c in ('Факт', 'Прогноз', 'Базовый прогноз','Цель после восстановления') if c in frame]
         positions = {0, len(frame)-1}
         for block in np.array_split(np.arange(len(frame)), max(1, limit//(2*max(1,len(fields))))):
             for column in fields:

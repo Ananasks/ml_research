@@ -179,14 +179,19 @@ def shap_local_figure(explanation, row):
     return figure
 
 
-def daily_metric_figures(result):
+def daily_metric_figures(result, basis='measured'):
     """One axis per metric/split avoids mixing units and subplot label collisions."""
     from ml_lab.result_series import winning_validation
+    if basis not in ('measured','prepared'): raise ValueError('Неизвестная основа метрик.')
     figures = {}
     for split, frame in [('train', result.get('train_predictions')),
                          ('validation', winning_validation(result)), ('test', result.get('predictions'))]:
         if frame is None or frame.empty:
             continue
+        if basis=='prepared':
+            if 'Цель после восстановления' not in frame: continue
+            frame=frame.copy()
+            frame['Факт']=frame['Цель после восстановления']
         table = daily_metrics(frame, result['task'])
         if table.empty:
             continue
@@ -198,5 +203,5 @@ def daily_metric_figures(result):
                 margin=dict(l=65,r=25,t=25,b=70),
                 xaxis=dict(title='Дата · UTC', type='date', nticks=6, tickformat='%d.%m<br>%Y', automargin=True),
                 yaxis=dict(title=metric, automargin=True))
-            figures[f'daily:{split}:{metric}'] = fig
+            figures[f"{'daily_prepared' if basis=='prepared' else 'daily'}:{split}:{metric}"] = fig
     return figures

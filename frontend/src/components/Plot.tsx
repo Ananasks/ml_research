@@ -24,6 +24,6 @@ export default function Plot(props:Props){
     observer.observe(element);return()=>observer.disconnect()
   },[])
   const data=useMemo(()=>structuredClone(props.data),[props.data])
-  const layout=useMemo(()=>({...structuredClone(props.layout??{}),autosize:false,width:Math.max(200,width),height}),[props.layout,width,height])
+  const layout=useMemo(()=>({...structuredClone(props.layout??{}),font:{size:14,...props.layout?.font},autosize:false,width:Math.max(200,width),height}),[props.layout,width,height])
   return <div ref={host} className="responsive-plot" style={{width:'100%',minWidth:0,height,position:'relative'}}>{error?<p className="inline-error">Не удалось отобразить график: {error}</p>:visible&&width>0&&<RawPlot {...props} data={data} layout={layout} useResizeHandler={false} config={{...props.config,responsive:false,displaylogo:false}} style={{...props.style,width:'100%',height:'100%'}} onError={event=>{setError(String(event));props.onError?.(event)}}/>}</div>
 }

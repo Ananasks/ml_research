@@ -5,7 +5,7 @@ from sklearn.covariance import EllipticEnvelope
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import RobustScaler
+from sklearn.preprocessing import RobustScaler, StandardScaler
 from sklearn.svm import OneClassSVM
 from ml_lab.model_repair import integer
 
@@ -26,6 +26,8 @@ def detector_settings(config):
         raise ValueError('Доля аномалий должна быть числом от 0 до 0.5, не включая 0.') from None
     if not np.isfinite(fraction) or not 0<fraction<=.5:
         raise ValueError('Доля аномалий должна быть числом от 0 до 0.5, не включая 0.')
+    result['scaler']=config.get('scaler','robust')
+    if result['scaler'] not in ('robust','standard'): raise ValueError('Неизвестный способ масштабирования детектора.')
     result['contamination']=fraction
     return result
 
@@ -42,7 +44,7 @@ def build_detector(method, settings, count):
         estimator=EllipticEnvelope(contamination=fraction,random_state=settings['seed'])
     else:
         raise ValueError('Неизвестный модельный детектор аномалий.')
-    return make_pipeline(RobustScaler(),estimator)
+    return make_pipeline(StandardScaler() if settings.get('scaler')=='standard' else RobustScaler(),estimator)
 
 
 def detect_model_anomalies(values, physical, method, config):

@@ -9,6 +9,7 @@ import re
 import time
 import hashlib
 from collections import OrderedDict
+from concurrent.futures import Future
 from threading import RLock
 from pathlib import Path
 from typing import Any
@@ -33,7 +34,8 @@ DATA_DIR = ROOT / "data"
 UPLOAD_DIR = ROOT / ".local" / "uploads"
 WORKFLOW_DIR = ROOT / ".local" / "workflows"
 STORE = ExperimentStore(ROOT / ".local" / "experiments.sqlite3")
-RUNS: dict[str, dict[str, Any]] = {}
+from ml_lab.run_store import RunStore
+RUNS = RunStore(ROOT / ".local" / "runs")
 RUN_CONFIGS: dict[str, dict[str, Any]] = {}
 app = FastAPI(title="ML Research API", version="0.1.0")
 app.add_middleware(
@@ -102,7 +104,7 @@ def datasets():
                 "columns": len(frame.columns),
                 "columnNames": frame.columns.tolist(),
                 "timeColumns": detect_time_columns(frame),
-                "numericColumns": frame.select_dtypes(include="number").columns.tolist(),
+                "numericColumns": [c for c in frame.select_dtypes(include="number").columns if str(c).strip().lower() not in ("index","level_0","unnamed: 0")],
                 "readSettings": metadata.get("settings", {}),
             })
         except Exception:
@@ -160,7 +162,7 @@ def upload_dataset(request: UploadRequest):
         "columns": len(frame.columns),
         "columnNames": frame.columns.tolist(),
         "timeColumns": detect_time_columns(frame),
-        "numericColumns": frame.select_dtypes(include="number").columns.tolist(),
+        "numericColumns": [c for c in frame.select_dtypes(include="number").columns if str(c).strip().lower() not in ("index","level_0","unnamed: 0")],
         "readSettings": settings,
     }
 
@@ -206,7 +208,7 @@ def combine_dataset_request(request: CombineDatasetsRequest):
         (UPLOAD_DIR / f"{stored_name}.json").write_text(json.dumps({"settings": {}}, ensure_ascii=False), encoding="utf-8")
         return {"dataset": {"id": stored_name, "name": f"Сборка · {len(records)} наборов", "file": stored_name,
                 "rows": len(frame), "columns": len(frame.columns), "columnNames": frame.columns.tolist(),
-                "timeColumns": detect_time_columns(frame), "numericColumns": frame.select_dtypes(include="number").columns.tolist()}, "diagnostics": diagnostics}
+                "timeColumns": detect_time_columns(frame), "numericColumns": [c for c in frame.select_dtypes(include="number").columns if str(c).strip().lower() not in ("index","level_0","unnamed: 0")]}, "diagnostics": diagnostics}
     except Exception as exc:
         raise HTTPException(422, f"Не удалось объединить наборы: {exc}") from exc
 
@@ -432,10 +434,10 @@ def run_workflow(request: WorkflowRunRequest):
                 "usedRows": used_count, "availableOutside": max(0, eligible_count-used_count), "notEligible": max(0, len(prepared)-eligible_count)}
             training_id = uuid.uuid4().hex
             training_result.update(config={"dataset": by_id[str(source_nodes[0]["id"])].get("data", {}).get("config", {}).get("dataset"), "model": model_name, "task": task, "features": features, "target": target, "params": params}, source="workflow")
-            RUNS[training_id] = training_result
             workflow_config = {"dataset": by_id[str(source_nodes[0]["id"])].get("data", {}).get("config", {}).get("dataset"), "model": model_name, "task": task, "params": params, "preparation": next((by_id[item].get("data", {}).get("config", {}).get("preparation", {}) for item in reversed(order[:order.index(identifier)]) if by_id[item].get("data", {}).get("kind") == "preprocess"), {}), "strategy": strategy, "count": count, "features": features, "target": target, "training": training_options, "searchSpace": config.get("searchSpace") or {}, "nodes": nodes, "edges": edges}
             RUN_CONFIGS[training_id] = workflow_config
             training_result["config"] = workflow_config
+            RUNS[training_id] = training_result
             record = STORE.save(training_result, workflow_config)
             transformed = training_result["pipeline"].named_steps["preprocess"].transform(training_result["explain_train"])
             try:
@@ -502,7 +504,7 @@ def run_workflow(request: WorkflowRunRequest):
 @app.get("/api/datasets/{name}/preview")
 def dataset_preview(name: str, limit: int = 100):
     frame = get_dataset(name)
-    numeric = frame.select_dtypes(include="number").columns.tolist()
+    numeric = [c for c in frame.select_dtypes(include="number").columns if str(c).strip().lower() not in ("index","level_0","unnamed: 0")]
     series = []
     time_columns = detect_time_columns(frame)
     times = parse_datetime_values(frame[time_columns].astype(str).agg(' '.join, axis=1)) if time_columns else None
@@ -528,7 +530,7 @@ def dataset_profile(name: str):
     profile = _profile(frame)
     profile["duplicates"] = int(frame.duplicated().sum())
     profile["emptyColumns"] = [str(column) for column in frame.columns if frame[column].isna().all()]
-    profile["numericColumns"] = frame.select_dtypes(include="number").columns.tolist()
+    profile["numericColumns"] = [c for c in frame.select_dtypes(include="number").columns if str(c).strip().lower() not in ("index","level_0","unnamed: 0")]
     profile["categoricalColumns"] = [str(column) for column in frame.columns if column not in frame.select_dtypes(include="number").columns]
     return profile
 
@@ -554,6 +556,7 @@ class PreparationRequest(BaseModel):
 
 
 _PREPARED_MODELS = OrderedDict()
+_PREPARING_MODELS = {}
 _PREPARED_MODELS_LOCK = RLock()
 
 
@@ -567,6 +570,14 @@ def prepare_dataset(raw, target, task, options):
     if generated is False:
         preparation.pop("start_datetime", None)
         preparation.pop("index_frequency", None)
+    # Saved drafts may still reference the row index removed during datetime normalization.
+    if detect_time_columns(raw) or isinstance(raw.index,pd.DatetimeIndex) or preparation.get('start_datetime'):
+        service=lambda name:str(name).strip().lower() in ('index','level_0','unnamed: 0')
+        for stage in ('repair','anomaly_stage','restoration'):
+            if preparation.get(stage):
+                preparation[stage]={**preparation[stage],'columns':[c for c in preparation[stage].get('columns',[]) if not service(c)]}
+        if preparation.get('feature_columns') is not None:
+            preparation['feature_columns']=[c for c in preparation['feature_columns'] if not service(c)]
     if task == "Классификация":
         repair = preparation.get("repair")
         if repair and target in repair.get("columns", []):
@@ -580,12 +591,28 @@ def prepare_dataset(raw, target, task, options):
         digest = hashlib.sha256(pd.util.hash_pandas_object(raw,index=True).values.tobytes()).hexdigest()
         key = (digest, tuple(raw.columns), tuple(map(str,raw.dtypes)), json.dumps(preparation,sort_keys=True,default=str))
         with _PREPARED_MODELS_LOCK:
-            if key not in _PREPARED_MODELS:
-                _PREPARED_MODELS[key] = prepare_frame(raw, **preparation)
-                if len(_PREPARED_MODELS) > 2:
-                    _PREPARED_MODELS.popitem(last=False)
-            _PREPARED_MODELS.move_to_end(key)
-            return _PREPARED_MODELS[key].copy(deep=True), preparation
+            if key in _PREPARED_MODELS:
+                _PREPARED_MODELS.move_to_end(key)
+                return _PREPARED_MODELS[key].copy(deep=True), preparation
+            future=_PREPARING_MODELS.get(key)
+            owner=future is None
+            if owner:
+                future=Future()
+                _PREPARING_MODELS[key]=future
+        if not owner:
+            return future.result().copy(deep=True),preparation
+        try:
+            prepared=prepare_frame(raw,**preparation)
+            with _PREPARED_MODELS_LOCK:
+                _PREPARED_MODELS[key]=prepared
+                if len(_PREPARED_MODELS)>2: _PREPARED_MODELS.popitem(last=False)
+                future.set_result(prepared)
+            return prepared.copy(deep=True),preparation
+        except BaseException as exc:
+            future.set_exception(exc)
+            raise
+        finally:
+            with _PREPARED_MODELS_LOCK: _PREPARING_MODELS.pop(key,None)
     return prepare_frame(raw, **preparation), preparation
 
 
@@ -681,7 +708,7 @@ def preview_preparation(name: str, request: PreparationRequest):
                 "profile": _profile(frame), "repairRecords": frame.attrs.get("repair_records", []),
                 "repairSeries": series, "sampled": len(positions) < len(frame),
                 "diagnostics": {k: frame.attrs.get(k, 0) for k in
-                    ("invalid_time_rows", "grid_added_rows", "duplicates_removed", "time_source")},
+                    ("invalid_time_rows", "grid_added_rows", "duplicates_removed", "time_source", "time_step")},
                 "split": split, "splitError": split_error}
     except (ValueError, TypeError, KeyError) as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -755,7 +782,7 @@ def experiment_model_view(run_id: str):
     """Return a compact, inspectable view of the fitted pipeline."""
     result = RUNS.get(run_id)
     if result is None:
-        raise HTTPException(404, "Результат доступен только в текущем процессе API.")
+        raise HTTPException(404, "Полный результат запуска не сохранён. Повторите расчёт по сохранённой конфигурации, чтобы восстановить графики и объяснимость.")
     pipeline = result["pipeline"]
     estimator = pipeline.named_steps["model"]
     preprocessor = pipeline.named_steps.get("preprocess")
@@ -914,7 +941,7 @@ def _json_safe(value: Any) -> Any:
 def explain_experiment(run_id: str, request: dict[str, Any]):
     result = RUNS.get(run_id)
     if result is None:
-        raise HTTPException(404, "Результат доступен только в текущем процессе API.")
+        raise HTTPException(404, "Полный результат запуска не сохранён. Повторите расчёт по сохранённой конфигурации, чтобы восстановить графики и объяснимость.")
     method = str(request.get("method", ""))
     class_index = int(request.get("classIndex", 0))
     try:
@@ -925,6 +952,7 @@ def explain_experiment(run_id: str, request: dict[str, Any]):
         else: raise HTTPException(400, "Неизвестный метод объяснения.")
         key = f"{method}:{class_index}"
         result.setdefault("explanations", {})[key] = payload
+        RUNS[run_id] = result
         return {"key": key, "method": method, "payload": _json_safe(payload)}
     except HTTPException:
         raise
@@ -936,7 +964,7 @@ def explain_experiment(run_id: str, request: dict[str, Any]):
 def experiment_series(run_id: str):
     result = RUNS.get(run_id)
     if result is None:
-        raise HTTPException(404, "Полные временные ряды недоступны после перезапуска API. Повторите обучение, чтобы обновить графики.")
+        raise HTTPException(404, "Полные временные ряды этого запуска не сохранены. Повторите расчёт по сохранённой конфигурации.")
     return result_series(result)
 
 
@@ -944,11 +972,11 @@ def experiment_series(run_id: str):
 def experiment_diagnostics(run_id: str):
     result = RUNS.get(run_id)
     if result is None:
-        raise HTTPException(404, "Результат доступен только в текущем процессе API.")
+        raise HTTPException(404, "Полный результат запуска не сохранён. Повторите расчёт по сохранённой конфигурации, чтобы восстановить графики и объяснимость.")
     from ml_lab.diagnostics import (timeline_figure, daily_figure, regression_figures,
         classification_figures, probability_figures, comparison_figures, training_figure)
     from ml_lab.diagnostics import daily_metric_figures
-    figures = {"timeline": timeline_figure(result), **daily_metric_figures(result)}
+    figures = {"timeline": timeline_figure(result), **daily_metric_figures(result), **daily_metric_figures(result,basis='prepared')}
     daily = daily_figure(result)
     if daily is not None: figures["daily"] = daily
     quality = regression_figures(result["predictions"]) if result["task"] == "Регрессия" else classification_figures(result)
@@ -966,7 +994,7 @@ def experiment_diagnostics(run_id: str):
 def export_experiment(run_id: str, format_name: str):
     result = RUNS.get(run_id)
     if result is None:
-        raise HTTPException(404, "Результат доступен только в текущем процессе API.")
+        raise HTTPException(404, "Полный результат запуска не сохранён. Повторите расчёт по сохранённой конфигурации, чтобы восстановить графики и объяснимость.")
     config = RUN_CONFIGS.get(run_id, result.get("config", {}))
     if format_name == "html":
         return Response(html_report(result, config), media_type="text/html; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="experiment-{run_id[:8]}.html"'})
@@ -990,9 +1018,9 @@ def export_experiment(run_id: str, format_name: str):
 def experiment_report(run_id: str):
     result = RUNS.get(run_id)
     if result is None:
-        raise HTTPException(404, "Результат доступен только в текущем процессе API.")
+        raise HTTPException(404, "Полный результат запуска не сохранён. Повторите расчёт по сохранённой конфигурации, чтобы восстановить графики и объяснимость.")
     from ml_lab.experiments import html_report
-    report = html_report(result, RUN_CONFIGS.get(run_id, {}))
+    report = html_report(result, RUN_CONFIGS.get(run_id, result.get("config", {})))
     return Response(
         content=report,
         media_type="text/html; charset=utf-8",
@@ -1013,3 +1041,41 @@ def journal():
 @app.delete("/api/journal")
 def clear_journal():
     return {"removed": STORE.clear()}
+
+
+class RadioAnalysisRequest(BaseModel):
+    column: str
+    source: str = 'prepared'
+    preparation: dict[str, Any] = Field(default_factory=dict)
+    max_points: int = Field(default=4096,ge=128,le=8192)
+    lags: int = Field(default=48,ge=1,le=200)
+    m: int = Field(default=2,ge=1,le=4)
+    ratio: float = Field(default=.2,ge=.01,le=1)
+    method: str = 'welch'
+    segment: int = Field(default=512,ge=16,le=8192)
+    trend: str = 'constant'
+
+
+@app.post('/api/datasets/{name}/radio-analysis')
+def radio_analysis(name: str, request: RadioAnalysisRequest):
+    from ml_lab.radio_analysis import analyze_channel
+    raw=get_dataset(name)
+    if request.source not in ('raw','prepared'): raise HTTPException(422,'Неизвестный источник анализа.')
+    try:
+        allowed=('time_columns','dayfirst','strict_dates','drop_invalid_time','start_datetime','index_frequency','generate_index')
+        options={k:v for k,v in request.preparation.items() if k in allowed}
+        options.update(calendar=False,drop_invalid_time=True)
+        if request.source=='prepared':
+            for key in ('frequency','duplicate_policy'):
+                if key in request.preparation: options[key]=request.preparation[key]
+            for stage in ('repair','anomaly_stage','restoration'):
+                config=request.preparation.get(stage)
+                if config and request.column in config.get('columns',[]):
+                    options[stage]={**config,'columns':[request.column]}
+        frame,_=prepare_dataset(raw,request.column,'Регрессия',options)
+        result=analyze_channel(frame,request.column,request.max_points,request.lags,request.m,request.ratio,request.method,request.segment,request.trend)
+        result['source']=request.source
+        result['processingApplied']=any(options.get(key) for key in ('repair','anomaly_stage','restoration'))
+        return result
+    except (ValueError,TypeError,KeyError) as exc:
+        raise HTTPException(422,str(exc)) from exc

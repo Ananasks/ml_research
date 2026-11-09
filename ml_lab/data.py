@@ -28,6 +28,7 @@ def read_dataset(raw, name, separator=None, encoding='utf-8-sig', decimal='.', s
 def prepare_frame(df, time_columns=None, dayfirst=None, calendar=True, target=None, lags=(), horizon=0, drop_invalid_time=False, strict_dates=True, frequency=None,
                   duplicate_policy="error", rolling_windows=(), rolling_stats=("mean","std"), difference=False, start_datetime=None, index_frequency=None, repair=None,
                   feature_columns=None, ewm_spans=(), difference_lags=(), partial_windows=False, quality_flags=False, anomaly_stage=None, restoration=None, calendar_features=None):
+    if restoration and not frequency: frequency='auto'
     frame,time,diagnostics=normalize_time_index(df,time_columns,dayfirst,strict_dates,drop_invalid_time,
         frequency,duplicate_policy,start_datetime,index_frequency,target)
     frame=frame.replace([np.inf,-np.inf],np.nan)
@@ -124,7 +125,7 @@ def prepare_frame(df, time_columns=None, dayfirst=None, calendar=True, target=No
     frame.attrs['history_sources']=history_sources
     frame.attrs['persistence']=persistence
     frame.attrs.update(diagnostics)
-    frame.attrs['frequency']=frequency
+    frame.attrs['frequency']=diagnostics.get('time_step') or frequency
     frame.attrs['time'] = time
     frame.attrs['horizon'] = int(horizon)
     frame.attrs['lag_columns'] = [f'{source}_lag_{lag}' for source in sources for lag in lags]

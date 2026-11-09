@@ -87,3 +87,23 @@ class ResearchDatetimeTests(unittest.TestCase):
         frame=prepare_frame(pd.DataFrame({' Date ':['02-01-2022','03-01-2022'],'y':[1,2]}),target='y')
         self.assertEqual(frame.index[0],pd.Timestamp('2022-01-02'))
         self.assertEqual(frame.index[1],pd.Timestamp('2022-01-03'))
+
+
+def test_complete_grid_predictions_retain_restored_targets_in_every_split():
+    from ml_lab.core import run_experiments
+    from ml_lab.data import prepare_frame
+    from ml_lab.result_series import winning_validation,result_series
+    raw=pd.DataFrame({'datetime':pd.date_range('2024-01-01',periods=180,freq='h'),'y':10+np.sin(np.arange(180)/8)})
+    raw=raw.drop(index=[40,41,42,120,121,122,160,161,162])
+    prepared=prepare_frame(raw,target='y',frequency='auto',restoration={'columns':['y'],'auto_tune':False,'model_config':{'model':'ridge'}})
+    result=run_experiments(prepared,['calendar_hour'],'y','Регрессия',[{'name':'Ridge','params':{}}],{'split':'time'})
+    assert 'error' not in result
+    for frame in [result['train_predictions'],winning_validation(result),result['predictions']]:
+        assert 'Цель после восстановления' in frame
+        assert frame['Цель после восстановления'].notna().all()
+        assert frame['Прогноз'].notna().all()
+        assert (frame['Время'].diff().dropna()==pd.Timedelta('1h')).all()
+    assert result['predictions']['Факт'].isna().any()
+    assert result['evaluation_sizes']['test']<result['sizes']['test']
+    for rows in result_series(result)['splits'].values():
+        assert not any(row.get('_gapBefore') for row in rows)

@@ -58,6 +58,13 @@ def repair_signals(frame, times, config):
                 values,physical,method,config.get('anomaly_config') or {})
             statistical=pd.Series(detected,index=values.index)
             lower=pd.Series(model_lower,index=values.index);upper=pd.Series(model_upper,index=values.index)
+        selected_label=config.get('anomaly_label',-1)
+        if isinstance(selected_label,bool) or selected_label not in (-1,1):
+            raise ValueError('Метка аномалии должна быть −1 или 1.')
+        # Unscored warm-up rows and missing measurements never become inliers.
+        scored=pd.Series(np.isfinite(anomaly_score),index=values.index) if anomaly_score is not None else lower.notna() & upper.notna()
+        if selected_label==1:
+            statistical=scored & values.notna() & ~statistical & ~physical
         anomalies=physical|statistical
         cleaned=values.copy()
         if action=='clip':
