@@ -680,3 +680,160 @@ body { font-size:16px;line-height:1.5; }
 .analysis-table th { text-align:left;background:var(--panel-soft);position:sticky;top:0;font-weight:500; }
 .analysis-table th,.analysis-table td { padding:10px 14px;border-bottom:1px solid var(--line-soft);white-space:nowrap; }
 .analysis-formula { font-family:ui-monospace,monospace;background:var(--panel-soft);padding:12px;border-radius:9px; }
+
+/* Radio laboratory: shares the application's light/dark palette. */
+.radio-lab{display:flex;flex-direction:column;gap:20px;min-width:0}
+.radio-heading{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.radio-heading h1{font-size:26px;font-weight:650;letter-spacing:-.6px;margin:8px 0}
+.radio-heading p{color:var(--muted);font-size:13px}
+.radio-eyebrow{display:flex;align-items:center;gap:8px;color:var(--accent);font-size:10px;letter-spacing:1.5px;font-weight:700}
+.radio-workspace{display:grid;grid-template-columns:265px minmax(0,1fr);gap:18px;align-items:start}
+.radio-settings{display:flex;flex-direction:column;gap:16px;padding:18px;position:sticky;top:0;max-height:calc(100vh - 160px);overflow:auto}
+.radio-settings h3{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:650}
+.radio-control{display:block;font-size:11px}
+.radio-control>span{display:flex;justify-content:space-between;gap:6px;color:var(--muted)}
+.radio-control b{font-variant-numeric:tabular-nums;color:var(--text);font-weight:500;white-space:nowrap}
+.radio-control input{width:100%;accent-color:var(--accent);margin:10px 0 2px}
+.radio-control small{font-size:10px;color:var(--faint)}
+.radio-check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.radio-check input{accent-color:var(--accent)}
+.radio-results{display:flex;flex-direction:column;gap:16px;min-width:0}
+.radio-status{display:flex;gap:8px;align-items:center;min-height:30px;font-size:11px;color:var(--muted)}
+.radio-status>span{width:6px;height:6px;border-radius:50%;background:#20b7ad}
+.radio-status button{margin-left:auto}
+.radio-pulse{animation:radioPulse 1s infinite}
+@keyframes radioPulse{50%{opacity:.25}}
+.radio-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.radio-metrics>div{border:1px solid var(--line);background:var(--panel);padding:14px 12px;border-radius:10px;min-width:0}
+.radio-metrics span{display:block;font-size:10px;color:var(--muted);margin-bottom:8px}
+.radio-metrics strong{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.radio-chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.radio-chart{padding:16px 8px 4px;min-width:0;overflow:hidden}
+.radio-chart h3,.radio-orbit h3{font-size:12px;font-weight:600;padding:0 10px}
+.radio-chain-card{padding:20px;min-width:0}
+.radio-chain{display:flex;gap:6px;margin-bottom:14px}
+.radio-chain button{flex:1;display:flex;flex-direction:column;gap:8px;align-items:start;padding:12px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;text-align:left;background:var(--panel-soft)}
+.radio-chain button.active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.radio-chain small{font-size:9px;letter-spacing:1px;color:var(--muted)}
+.radio-chain-card p{font-size:12px;color:var(--muted);line-height:1.7;margin:12px 0}
+.radio-orbit{padding:16px;display:flex;flex-direction:column;align-items:stretch;min-width:0}
+.radio-complex-plane{position:relative;width:180px;height:180px;align-self:center;margin:12px;background:radial-gradient(circle,rgba(42,181,210,.08),transparent 70%)}
+.radio-axis{position:absolute;background:var(--line)}
+.radio-axis.horizontal{height:1px;width:100%;top:50%}
+.radio-axis.vertical{width:1px;height:100%;left:50%}
+.radio-ring{position:absolute;inset:25%;border:1px dashed var(--line);border-radius:50%}
+.radio-complex-plane svg{position:absolute;inset:0;width:100%;height:100%}
+.radio-complex-plane>span{position:absolute;right:0;top:50%;font-size:10px;color:var(--muted)}
+.radio-complex-plane>b{position:absolute;left:52%;top:0;font-size:10px;font-weight:400;color:var(--muted)}
+.radio-playback{display:flex;gap:10px;align-items:center}
+.radio-playback input{width:100%;accent-color:#23adbd}
+.radio-orbit p{font-size:11px;color:var(--muted);margin:5px 0}
+.radio-orbit small{font-size:10px;color:var(--muted)}
+.radio-theory{max-width:1100px;line-height:1.8}
+.radio-theory h2{font-size:22px;font-weight:600;margin-bottom:18px}
+.radio-theory h3{font-size:16px;font-weight:600;margin:26px 0 12px}
+.radio-theory p,.radio-theory li{font-size:13px}
+.radio-theory ol{list-style:decimal;padding-left:24px}
+.radio-theory li{padding:8px 0;color:var(--muted)}
+.radio-theory a{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+.radio-equation{white-space:pre-wrap;overflow-wrap:anywhere;font-family:'STIX Two Math','Cambria Math',Georgia,serif;letter-spacing:.2px;font-size:16px;line-height:2;background:var(--panel-soft);border:1px solid var(--line);border-left:3px solid #24acbf;border-radius:7px;padding:18px 22px}
+.radio-notes{border:1px solid var(--line);border-radius:8px;padding:16px;color:var(--muted);font-size:12px;background:var(--panel)}
+.radio-notes summary{cursor:pointer;color:var(--text)}
+.radio-notes p{margin-top:12px;line-height:1.7}
+@media(max-width:1200px){.radio-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.radio-chart-grid{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:800px){.radio-workspace{grid-template-columns:minmax(0,1fr)}.radio-settings{position:static;max-height:none}.radio-heading{align-items:start;flex-direction:column}.radio-chain{flex-wrap:wrap}.radio-chain button{min-width:90px}.radio-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Instrument surface follows the supplied radio-channel reference screens. */
+.radio-lab{--panel:#ffffff;--panel-soft:#f8fafc;--text:#1e293b;--muted:#64748b;--faint:#94a3b8;--line:#dce5ef;--line-soft:#edf1f6;--accent:#2477b8;--accent-soft:#eaf4fd;--success:#168158;--success-soft:#eaf8f1;--warning-soft:#fff7e9;color:var(--text);color-scheme:light;background:#f8fafc;padding:22px;border:1px solid #dce5ef;border-radius:18px;box-shadow:0 16px 48px rgba(0,0,0,.18)}
+.radio-lab .card{border-color:var(--line);background:#ffffff;box-shadow:0 0 0 1px rgba(27,147,184,.03)}
+.radio-lab .view-toggle{background:#edf2f7;border:1px solid #dce5ef;flex-wrap:wrap}
+.radio-lab .view-toggle button{color:#64748b}
+.radio-lab .view-toggle button.active{color:#175d93;background:#ffffff;box-shadow:inset 0 0 0 1px #2187a4,0 0 12px #00b7ec18}
+.radio-lab .field{background:#ffffff;border-color:#dce5ef;color:#1e293b}
+.radio-lab .button-secondary{border-color:#dce5ef;color:#1e293b;background:#ffffff}
+.radio-lab .button-primary{color:#ffffff;background:#2477b8}
+.radio-lab .button-ghost{color:#64748b}
+.radio-lab .radio-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
+.radio-lab .radio-metrics>div{border-top:2px solid #1c7798}
+.radio-lab .radio-metrics strong{color:#175d93}
+.radio-lab .radio-heading h1{font-size:24px;max-width:960px;color:#1e293b}
+.radio-lab .radio-settings{border-top:2px solid #269abe}
+.radio-run-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+.radio-run-bar>span:nth-child(2){margin-right:auto;font-variant-numeric:tabular-nums}
+.radio-source-status{font-size:10px;line-height:1.6;color:var(--muted)}
+.radio-lab .analysis-table{overflow:auto}
+.radio-lab .analysis-table th,.radio-lab .analysis-table td{border-color:var(--line);color:var(--text)}
+@media(min-width:1300px){.radio-lab .radio-chart-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:800px){.radio-lab{padding:12px}.radio-lab .radio-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tec-workspace{display:flex;flex-direction:column;gap:16px}
+.tec-workspace>*,.tec-workspace .radio-chart-grid{margin-bottom:16px}
+.tec-source{display:flex;flex-direction:column;gap:14px}
+.tec-source h3{font-size:15px;font-weight:600}
+.tec-actions{display:flex;gap:10px;flex-wrap:wrap;margin:15px 0}
+.tec-workspace input[type=range]{width:100%;accent-color:#2477b8;margin:15px 0}
+.tec-chart-title{display:flex;justify-content:space-between;align-items:center;padding-right:10px}
+.tec-chart-title select{font-size:10px;color:#64748b;background:white;border:1px solid #dce5ef;border-radius:4px;padding:3px}
+.tec-formula{margin:0 12px 12px;font-size:10px;color:#64748b;line-height:1.6}
+.tec-formula summary{cursor:pointer}
+.tec-formula code{display:block;margin:8px 0;white-space:pre-wrap}
+.tec-workspace a,.tec-formula a{color:#2477b8;text-decoration:underline}
+.tec-workspace pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;background:#f8fafc;padding:12px}
+.radio-lab,.radio-lab .radio-chart,.radio-lab .radio-settings{background:#fff}
+
+/* Radio workspaces follow the site's light cards and compact instrument layout. */
+.radio-lab{padding:18px;border-radius:12px;background:#fff;box-shadow:none;border:1px solid #e2e8f0;gap:16px}
+.radio-lab .radio-heading h1{font-size:21px;line-height:1.3;letter-spacing:-.35px}
+.radio-lab .radio-heading p{font-size:12px;line-height:1.6}
+.radio-lab .view-toggle{border:0;border-bottom:1px solid #e2e8f0;border-radius:0;background:#fff;gap:4px;padding:0 0 8px}
+.radio-lab .view-toggle button{font-size:11px;padding:9px 12px;border-radius:6px}
+.radio-lab .view-toggle button.active{background:#eaf3ff;color:#3076cf;box-shadow:none}
+.radio-lab .radio-workspace{grid-template-columns:252px minmax(0,1fr);gap:16px}
+.radio-lab .radio-settings{border-top:1px solid #dce5ef;padding:0;gap:0;max-height:calc(100vh - 145px);border-radius:9px}
+.radio-setting-group{display:flex;flex-direction:column;gap:12px;padding:15px;border-bottom:1px solid #e2e8f0}
+.radio-setting-group h3{font-size:12px;font-weight:650;margin:0 0 2px;color:#334155}
+.radio-lab .radio-settings .field-label{font-size:11px;line-height:1.45}
+.radio-lab .radio-settings .field{min-height:32px;font-size:11px}
+.radio-source-name{font-size:12px;font-weight:600;color:#334155}
+.radio-advanced{padding:14px 15px;font-size:11px;border-bottom:1px solid #e2e8f0}
+.radio-advanced summary{cursor:pointer;color:#475569;font-weight:600}
+.radio-advanced>div{display:flex;flex-direction:column;gap:13px;margin-top:15px}
+.radio-setting-actions{display:flex;flex-direction:column;gap:9px;padding:15px;background:#fff;position:sticky;bottom:0;border-top:1px solid #e2e8f0}
+.radio-setting-actions button{width:100%;font-size:11px}
+.radio-dashboard-main,.radio-dashboard-bottom{display:grid;gap:12px;min-width:0}
+.radio-dashboard-main{grid-template-columns:repeat(2,minmax(0,1fr))}
+.radio-dashboard-bottom.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.radio-dashboard-bottom.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+.radio-lab .radio-chart{padding:0;border-radius:8px;box-shadow:none;border-color:#dce5ef;min-width:0}
+.radio-lab .tec-chart-title{padding:11px 12px 8px;gap:8px;border-bottom:1px solid #edf1f6;background:#fafcff}
+.radio-lab .tec-chart-title h3{font-size:11px;line-height:1.4;padding:0;font-weight:600}
+.radio-chart-caption{font-size:10px;line-height:1.5;color:#64748b;padding:8px 12px 0;min-height:38px}
+.radio-lab .tec-formula{font-size:10px;margin:0 12px 10px}
+.radio-chart-placeholder{min-height:300px;display:flex;flex-direction:column;justify-content:center;padding:28px;text-align:center;background:#fafcff!important;border-style:dashed!important}
+.radio-chart-placeholder h3{font-size:13px;color:#334155;margin-bottom:10px}
+.radio-chart-placeholder p{font-size:12px;color:#64748b;line-height:1.7}
+.radio-empty-source{padding:16px;border:1px dashed #bbd3ef!important;background:#f7fbff!important}
+.radio-empty-source h3{font-size:13px;font-weight:600}
+.radio-empty-source p{font-size:12px;color:#64748b;line-height:1.7;margin:8px 0 12px}
+.radio-current-results{padding:15px;border-radius:8px}
+.radio-current-results h3{font-size:12px;font-weight:600;margin-bottom:13px}
+.radio-current-results>div{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.radio-current-results section{padding:11px;border:1px solid #e2e8f0;border-radius:6px;background:#fafcff;min-width:0}
+.radio-current-results section span{display:block;font-size:10px;color:#64748b;margin-bottom:8px}
+.radio-current-results section strong{font-size:13px;font-weight:600;color:#334155;font-variant-numeric:tabular-nums}
+.radio-current-results>p{font-size:10px;color:#64748b;margin-top:12px}
+.radio-extra-diagnostics{border:1px solid #e2e8f0;border-radius:8px;padding:15px;font-size:12px}
+.radio-extra-diagnostics>summary{cursor:pointer;color:#475569;font-weight:600}
+.radio-extra-diagnostics .radio-chain{margin-top:15px}
+.radio-extra-diagnostics>p{font-size:11px;color:#64748b;margin-bottom:14px}
+.tec-manual-run{font-size:11px;color:#64748b}
+.tec-manual-run summary{cursor:pointer;margin:4px 0 10px}
+@media(max-width:1450px){.radio-dashboard-bottom.four{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1100px){.radio-dashboard-bottom.three{grid-template-columns:minmax(0,1fr)}.radio-dashboard-main{grid-template-columns:minmax(0,1fr)}.radio-current-results>div{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:800px){.radio-lab .radio-workspace{grid-template-columns:minmax(0,1fr)}.radio-lab .radio-settings{position:static;max-height:none}.radio-dashboard-bottom.four{grid-template-columns:minmax(0,1fr)}.radio-current-results>div{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.radio-theory-sections{display:flex;flex-direction:column;gap:16px;max-width:none}
+.radio-theory-sections h2{font-size:18px}
+.radio-theory-sections .radio-equation{background:#f8fafc;font-size:15px;line-height:1.9;border-color:#dce5ef;border-left-color:#78a6db}
+.radio-theory-sections ul{list-style:disc;padding-left:22px}
+@media(max-width:1400px) and (min-width:1101px){.radio-dashboard-bottom.three{grid-template-columns:repeat(2,minmax(0,1fr))}.radio-dashboard-bottom.three>.radio-chart:last-child{grid-column:1/-1}}
+@media(max-width:1100px){.radio-lab .radio-workspace{grid-template-columns:minmax(0,1fr)}.radio-lab .radio-settings{position:static;max-height:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.radio-lab .radio-setting-actions{position:static;grid-column:1/-1;flex-direction:row}.radio-lab .radio-dashboard-main{grid-template-columns:repeat(2,minmax(0,1fr))}.radio-dashboard-bottom.three{grid-template-columns:repeat(2,minmax(0,1fr))}.radio-dashboard-bottom.three>.radio-chart:last-child{grid-column:1/-1}.radio-chart-placeholder{min-height:220px}}
+@media(max-width:650px){.radio-lab .radio-settings,.radio-lab .radio-dashboard-main,.radio-lab .radio-dashboard-bottom.three{grid-template-columns:minmax(0,1fr)}.radio-lab .radio-setting-actions{flex-direction:column}.radio-dashboard-bottom.three>.radio-chart:last-child{grid-column:auto}}

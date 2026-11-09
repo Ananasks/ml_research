@@ -1079,3 +1079,8 @@ def radio_analysis(name: str, request: RadioAnalysisRequest):
         return result
     except (ValueError,TypeError,KeyError) as exc:
         raise HTTPException(422,str(exc)) from exc
+
+
+# Radio simulation stays independent of dataset training.
+from api.radio import router as radio_router
+app.include_router(radio_router)

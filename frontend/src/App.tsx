@@ -20,11 +20,12 @@ const Plot = lazy(() => import('./components/Plot'))
 const DataGrid = lazy(() => import('./components/DataGrid'))
 const ResearchWorkbench = lazy(() => import('./components/ResearchWorkbench'))
 const RadioAnalysis = lazy(() => import('./components/RadioAnalysis'))
+const RadioSimulator = lazy(() => import('./components/RadioSimulator'))
 const ResearchScheme = lazy(() => import('./components/ResearchScheme'))
 
 import type { Dataset, Preview, ModelParameter, ModelCatalog, RunResult, ResultSeries } from './types'
 type JournalEntry = { id: string; created: string; model: string; task: string; target: string; metrics: Record<string, number | null>; sizes: Record<string, number>; config: Record<string, unknown> }
-type PageKey = 'overview' | 'data' | 'experiment' | 'results' | 'radio' | 'workflow' | 'builder' | 'models' | 'journal' | 'settings'
+type PageKey = 'overview' | 'data' | 'experiment' | 'results' | 'radio' | 'workflow' | 'builder' | 'radio-narrow' | 'radio-wide' | 'models' | 'journal' | 'settings'
 type DatasetReadOptions = { separator: string | null; encoding: string; decimal: string; sheet: string | number }
 
 const navGroups = [
@@ -36,6 +37,8 @@ const navGroups = [
     { id: 'radio' as PageKey, label: 'Анализ радиоканала', icon: Activity },
     { id: 'workflow' as PageKey, label: 'Схема исследования', icon: Workflow },
     { id: 'builder' as PageKey, label: 'Конструктор эксперимента', icon: Workflow },
+    { id: 'radio-narrow' as PageKey, label: 'Узкополосный имитатор', icon: Activity },
+    { id: 'radio-wide' as PageKey, label: 'Широкополосный имитатор', icon: Activity },
   ] },
   { label: 'Библиотека', items: [
     { id: 'models' as PageKey, label: 'Каталог моделей', icon: Boxes },
@@ -256,6 +259,7 @@ function App() {
           {page === 'workflow' && <Suspense fallback={<div className="plot-loading">Загрузка схемы исследования…</div>}><ResearchScheme experiment={result} journal={journal} onGo={setPage} /></Suspense>}
           {page === 'builder' && <Suspense fallback={<div className="plot-loading">Загрузка конструктора…</div>}><ResearchWorkbench key="independent-workflow-builder" datasets={datasets} experiment={builderResult} journal={journal} onExperiment={setBuilderResult} onJournal={refreshJournal} onUpload={file=>uploadDataset(file,false)} /></Suspense>}
           {page === 'experiment' && <ModelTraining dataset={activeDataset} target={target} task={task} features={features} preparation={preparation} training={trainingOptions} ready={Boolean(preview)} model={model} setModel={setModel} params={params} setParams={setParams} catalog={catalog} loading={loading} onRun={runExperiment} strategy={strategy} setStrategy={setStrategy} count={variantCount} setCount={setVariantCount} space={searchSpace} setSpace={setSearchSpace} plan={candidatePlan} setPlan={setCandidatePlan} result={result} onData={()=>setPage('data')} onResults={()=>setPage('results')} />}
+          {(page === 'radio-narrow' || page === 'radio-wide') && <Suspense fallback={<p>Загрузка имитатора…</p>}><RadioSimulator key={page} mode={page === 'radio-wide' ? 'wide' : 'narrow'} datasets={datasets} selectedDataset={selectedDataset} experiments={[result,builderResult].filter((r): r is RunResult=>r!==null).filter((r,i,a)=>a.findIndex(x=>x.id===r.id)===i)} onData={()=>setPage('data')} onPredict={()=>setPage('experiment')}/></Suspense>}
           {page === 'radio' && <Suspense fallback={<p>Загрузка анализа…</p>}><RadioAnalysis datasets={datasets} selected={selectedDataset} onDataset={setSelectedDataset} preparation={preparation}/></Suspense>}
           {page === 'results' && <ResultsPage result={result} onGo={setPage} onRecovered={next=>{setResult(next);setError('');void refreshJournal().catch(()=>{})}} />}
           {page === 'models' && <ModelsPage catalog={filteredCatalog} query={query} task={task} experiment={result} />}
