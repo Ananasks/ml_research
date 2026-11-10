@@ -1,5 +1,6 @@
 """TEC adapters reuse the dataset library and full saved ML predictions."""
 from typing import Literal
+import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -77,20 +78,26 @@ def analyze(request: AnalysisRequest):
             if source:
                 frames[name],sources[name]=resolve(source,request)
         fc,bw=request.carrier_mhz*1e6,request.bandwidth_mhz*1e6
-        metrics=None; common=0
+        metrics=None; common=0; residual=None
         if len(frames)==2:
             pair,metrics=summarize_pair(frames['measured'],frames['predicted'],fc,bw)
             common=len(pair)
+            residual_frame=pair[['time']].copy()
+            residual_frame['stec']=np.abs(pair.stec_real-pair.stec_pred)
+            residual_frame['tec']=residual_frame.stec
+            residual_frame['rate']=np.nan
+            residual=serialize_series(residual_frame,fc,bw)
         return {'config':request.model_dump(),'sources':sources,
             'series':{key:serialize_series(frame,fc,bw) for key,frame in frames.items()},
-            'comparison':metrics,'alignment':{'common_rows':common,'method':'exact UTC timestamps; no interpolation',
+            'residual':residual, 'comparison':metrics,'alignment':{'common_rows':common,'method':'exact UTC timestamps; no interpolation',
                 'unmatched':{key:len(frame)-common for key,frame in frames.items()} if common else {}},
             'model':'A: first-order cold plasma','source':ITU_SOURCE,
             'convention':'Re{x exp(+j2πft)}; transfer phase advance +K/f, phase range negative',
             'notes':['Производная — левая разность по соседним точкам; через разрывы >3 медианных шагов не рассчитывается.',
                 'Наивные даты трактуются как UTC. Интерполяция и экстраполяция рядов не выполняются.',
                 'Ошибки Доплера сравниваются на одинаковых интервалах общих временных меток.',
-                'S4, быстрые замирания и полоса когерентности не выводятся из ПЭС.',
+                'Полоса когерентности — дисперсионный критерий Bk=√(cf³/(80.5πNₜ)); S4 и быстрые замирания из ПЭС не выводятся.',
+                'При Nₜ=0 полоса не ограничена этой моделью (null в JSON); остаточная полоса использует |STEC измерений − STEC прогноза| на общих UTC-метках.',
                 'Геометрия — заданный угол места и тонкий сферический слой; эфемериды и магнитное поле не моделируются.']}
     except ValueError as e:
         raise HTTPException(422,str(e)) from e

@@ -146,3 +146,30 @@ def test_ofdm_waveform_comparison_uses_matching_useful_samples_without_cp():
     wave=experiment(cfg)['waveform']
     assert len(wave['tx_real'])==len(wave['real'])==len(wave['time_s'])
     assert np.allclose(wave['tx_real'],wave['real'],atol=1e-12)
+
+
+def test_dispersive_bandwidth_scaling_and_zero_serialization():
+    f=1e9
+    r=physical([10,40],f)
+    expected=np.sqrt(C*f**3/(80.5*np.pi*10e16))/1e6
+    assert r['coherence_bandwidth_mhz'][0]==pytest.approx(expected)
+    assert r['coherence_bandwidth_mhz'][1]==pytest.approx(expected/2)
+    assert physical([10],2*f)['coherence_bandwidth_mhz'][0]==pytest.approx(expected*2**1.5)
+    assert r['delay_dispersion_s2'][0]==pytest.approx(-80.5*10e16/(2*np.pi*C*f**3))
+    frame,_=prepare_tec(data(values=[0,10,40]),'utc','tec',kind='STEC')
+    serialized=serialize_series(frame,f,1e6)
+    assert serialized['coherence_bandwidth_mhz'][0] is None
+    assert serialized['delay_ns'][0]==0
+
+
+def test_residual_bandwidth_uses_absolute_error_at_common_times(monkeypatch):
+    from api import tec
+    measured,_=prepare_tec(data(),'utc','tec',kind='STEC')
+    predicted,_=prepare_tec(data(values=[10,9,14]),'utc','tec',kind='STEC')
+    monkeypatch.setattr(tec,'resolve',lambda source,request: (measured if source.dataset=='real' else predicted,{}))
+    result=tec.analyze(tec.AnalysisRequest(measured=tec.Source(dataset='real'),predicted=tec.Source(dataset='pred')))
+    assert result['residual']['stec_tecu']==[0,2,2]
+    assert result['residual']['coherence_bandwidth_mhz'][0] is None
+    assert result['residual']['coherence_bandwidth_mhz'][1]==pytest.approx(result['residual']['coherence_bandwidth_mhz'][2])
+    import json
+    json.dumps(result,allow_nan=False)
