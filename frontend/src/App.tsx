@@ -1,3 +1,7 @@
+import {dataTestAnalysis} from './components/radioPeriod'
+import TecWorkspace from './components/TecWorkspace'
+import type {TecAnalysis,TecSelection} from './components/TecWorkspace'
+import ResultsWorkspace from './components/ResultsWorkspace'
 import MetricComparison from './components/MetricComparison'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { ColDef } from 'ag-grid-community'
@@ -95,6 +99,15 @@ function App() {
   const [searchSpace, setSearchSpace] = useState<Record<string, Record<string, unknown>>>({})
   const [preparation, setPreparation] = useState<Record<string, unknown>>({calendar:true, lags:[], rolling_windows:[], rolling_stats:['mean','std'], horizon:0, drop_invalid_time:true, partial_windows:false})
   const [trainingOptions, setTrainingOptions] = useState<Record<string, unknown>>({scaler:'standard', missing_indicators:true, size_mode:'percent', test_size:0.2, validation_size:0.2, seed:42})
+  const [tecAnalysis,setTecAnalysis]=useState<TecAnalysis|null>(null)
+  const [tecSourceSlot,setTecSourceSlot]=useState<HTMLElement|null>(null)
+  const [tecSelection,setTecSelection]=useState<TecSelection|null>(null)
+  const tecSelectionRef=useRef<((time:string)=>void)|null>(null),tecAnalyzeRef=useRef<(()=>void)|null>(null)
+  const [tecGeometry,setTecGeometry]=useState(()=>{try{const s=JSON.parse(localStorage.getItem('mlrl-tec-sources-v3')??'{}');return {carrier:Number(s.carrier??1575.42),band:Number(s.band??1),elevation:Number(s.elevation??60),height:Number(s.height??350)}}catch{return {carrier:1575.42,band:1,elevation:60,height:350}}})
+  useEffect(()=>{if(!tecAnalysis)return;const timer=setTimeout(()=>tecAnalyzeRef.current?.(),300);return()=>clearTimeout(timer)},[tecGeometry])
+  const tecTraining=tecAnalysis?.sources.measured?.dataset===selectedDataset?trainingOptions:{}
+  const tecTestAnalysis=useMemo(()=>dataTestAnalysis(tecAnalysis,tecTraining),[tecAnalysis,tecTraining])
+
   const [result, setResult] = useState<RunResult | null>(() => {
     try { return JSON.parse(localStorage.getItem('mlrl-last-experiment') ?? 'null') as RunResult | null }
     catch { return null }
@@ -258,10 +271,11 @@ function App() {
           {page === 'data' && <DataPage datasets={datasets} selectedDataset={selectedDataset} setSelectedDataset={setSelectedDataset} preview={preview} rows={filteredRows} query={query} setQuery={setQuery} readOptions={readOptions} setReadOptions={setReadOptions} onUpload={(file,options)=>uploadDataset(file,false,options)} onCombine={combineDatasets}><DataPreparation key={selectedDataset} dataset={activeDataset} target={target} setTarget={setTarget} task={task} setTask={setTask} preparation={preparation} setPreparation={setPreparation} training={trainingOptions} setTraining={setTrainingOptions} features={features} setFeatures={setFeatures} knownFeatures={preparedFeatureNames} setKnownFeatures={setPreparedFeatureNames} onExperiment={()=>setPage('experiment')}/></DataPage>}
           {page === 'workflow' && <Suspense fallback={<div className="plot-loading">Загрузка схемы исследования…</div>}><ResearchScheme experiment={result} journal={journal} onGo={setPage} /></Suspense>}
           {page === 'builder' && <Suspense fallback={<div className="plot-loading">Загрузка конструктора…</div>}><ResearchWorkbench key="independent-workflow-builder" datasets={datasets} experiment={builderResult} journal={journal} onExperiment={setBuilderResult} onJournal={refreshJournal} onUpload={file=>uploadDataset(file,false)} /></Suspense>}
+          <div className="radio-lab radio-research rr-data-source" style={{display:page==='data'||page==='radio-narrow'||page==='radio-wide'?'block':'none'}}><TecWorkspace compact portalTarget={page==='radio-narrow'||page==='radio-wide'?tecSourceSlot:null} testOnly title="Данные ПЭС для радиоканала" actionLabel="Применить данные ПЭС" datasets={datasets} selectedDataset={selectedDataset} experiments={[result,builderResult].filter((r):r is RunResult=>r!==null).filter((r,i,a)=>a.findIndex(x=>x.id===r.id)===i)} visible={page==='data'} view="sources" periodTimes={[]} parameters={tecGeometry} analyzeRef={tecAnalyzeRef} onSelection={setTecSelection} onAnalysis={setTecAnalysis} selectionRef={tecSelectionRef} onData={()=>setPage('data')} onPredict={()=>setPage('experiment')}/></div>
           {page === 'experiment' && <ModelTraining dataset={activeDataset} target={target} task={task} features={features} preparation={preparation} training={trainingOptions} ready={Boolean(preview)} model={model} setModel={setModel} params={params} setParams={setParams} catalog={catalog} loading={loading} onRun={runExperiment} strategy={strategy} setStrategy={setStrategy} count={variantCount} setCount={setVariantCount} space={searchSpace} setSpace={setSearchSpace} plan={candidatePlan} setPlan={setCandidatePlan} result={result} onData={()=>setPage('data')} onResults={()=>setPage('results')} />}
-          {(page === 'radio-narrow' || page === 'radio-wide') && <Suspense fallback={<p>Загрузка имитатора…</p>}><RadioSimulator key={page} mode={page === 'radio-wide' ? 'wide' : 'narrow'} datasets={datasets} selectedDataset={selectedDataset} experiments={[result,builderResult].filter((r): r is RunResult=>r!==null).filter((r,i,a)=>a.findIndex(x=>x.id===r.id)===i)} onData={()=>setPage('data')} onPredict={()=>setPage('experiment')}/></Suspense>}
+          {(page === 'radio-narrow' || page === 'radio-wide') && <Suspense fallback={<p>Загрузка имитатора…</p>}><RadioSimulator key={page} mode={page === 'radio-wide' ? 'wide' : 'narrow'} onSourceSlot={setTecSourceSlot} analysis={tecTestAnalysis} selection={tecSelection} selectionRef={tecSelectionRef} geometry={tecGeometry} onGeometryChange={setTecGeometry} configuredTestDays={tecTraining.size_mode==='days'?Number(tecTraining.test_days??1):null} onData={()=>setPage('data')} onResults={()=>setPage('results')}/></Suspense>}
           {page === 'radio' && <Suspense fallback={<p>Загрузка анализа…</p>}><RadioAnalysis datasets={datasets} selected={selectedDataset} onDataset={setSelectedDataset} preparation={preparation}/></Suspense>}
-          {page === 'results' && <ResultsPage result={result} onGo={setPage} onRecovered={next=>{setResult(next);setError('');void refreshJournal().catch(()=>{})}} />}
+          {page === 'results' && <ResultsWorkspace analysis={tecTestAnalysis} onData={()=>setPage('data')}><ResultsPage result={result} onGo={setPage} onRecovered={next=>{setResult(next);setError('');void refreshJournal().catch(()=>{})}} /></ResultsWorkspace>}
           {page === 'models' && <ModelsPage catalog={filteredCatalog} query={query} task={task} experiment={result} />}
           {page === 'journal' && <JournalPage journal={journal} refresh={refreshJournal} />}
           {page === 'settings' && <SettingsPage dark={dark} setDark={setDark} apiReady={apiReady} />}

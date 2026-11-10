@@ -20,7 +20,8 @@ def physical(stec_tecu, frequency_hz, bandwidth_hz=0):
     np.divide(C*f**3, 80.5*np.pi*stec, out=bandwidth, where=stec > 0)
     bandwidth = np.sqrt(bandwidth)
     return {'coherence_bandwidth_mhz': bandwidth/1e6,
-            'delay_dispersion_s2': -80.5*stec/(2*np.pi*C*f**3), 'stec_tecu': np.asarray(stec_tecu), 'path_m': path, 'delay_ns': path/C*1e9,
+            'delay_dispersion_s2': -80.5*stec/(2*np.pi*C*f**3),
+            'delay_frequency_derivative_s_per_hz': -80.6*stec/(C*f**3), 'stec_tecu': np.asarray(stec_tecu), 'path_m': path, 'delay_ns': path/C*1e9,
             'phase_rad': 2*np.pi*40.3*stec/(C*f),
             'dispersion_ns': 40.3*stec/C*((f-bandwidth_hz/2)**-2-(f+bandwidth_hz/2)**-2)*1e9}
 

@@ -1,0 +1,25 @@
+import {lazy,Suspense,useEffect,useRef,useState} from 'react'
+import type {Config} from './RadioSimulator'
+import type {TecAnalysis} from './TecWorkspace'
+import {Button,Card} from './ui'
+import {caseLabels,comparisonTimes} from './radioPeriod'
+const Plot=lazy(()=>import('./Plot'))
+type Score={bits:number;errors:number;ber:number;evm_percent:number}
+type Row={time:string;day:string;case:keyof typeof caseLabels;metrics:Score}
+type Summary=Score&{day:string;case:keyof typeof caseLabels;packets:number}
+type DailyResult={rows:Row[];summaries:Summary[];notes:string[]}
+export default function DayChannelComparison({analysis,config}:{analysis:TecAnalysis|null;config:Config}){
+ const [result,setResult]=useState<DailyResult|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[calculated,setCalculated]=useState('')
+ const abort=useRef<AbortController|null>(null)
+ const a=analysis?.series.measured,b=analysis?.series.predicted
+ const measuredIndices=new Map(a?.time.map((t,i)=>[t,i])),predictedIndices=new Map(b?.time.map((t,i)=>[t,i]))
+ const samples=comparisonTimes(analysis).map(time=>{const i=measuredIndices.get(time)??-1,j=predictedIndices.get(time)??-1;return {time,measured:i>=0?a!.stec_tecu[i]:null,predicted:j>=0?b!.stec_tecu[j]:null,measured_rate:i>=0?a!.rate_tecu_s[i]??0:0,predicted_rate:j>=0?b!.rate_tecu_s[j]??0:0}})
+ // Active detail timestamp and case do not change the daily comparison's three fixed cases.
+ const {model,tec_stec_tecu,tec_rate_tecu_s,compensation_stec_tecu,compensation_rate_tecu_s,source_context,...settings}=config
+ void model;void tec_stec_tecu;void tec_rate_tecu_s;void compensation_stec_tecu;void compensation_rate_tecu_s;void source_context
+ const key=JSON.stringify({samples,settings})
+ useEffect(()=>{abort.current?.abort();setBusy(false);return()=>abort.current?.abort()},[key])
+ async function calculate(){abort.current?.abort();const controller=new AbortController();abort.current=controller;setBusy(true);setError('');try{const r=await fetch('/api/radio/daily',{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({config,samples})});const data=await r.json();if(!r.ok)throw new Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail));if(!controller.signal.aborted){setResult(data);setCalculated(key)}}catch(e){if(!controller.signal.aborted)setError(e instanceof Error?e.message:String(e))}finally{if(abort.current===controller)setBusy(false)}}
+ const current=calculated===key?result:null
+ return <Card className="radio-chain-card radio-daily"><div className="tec-actions"><h3>Сравнение трёх случаев за выбранные дни</h3><Button disabled={busy||!samples.length||samples.length>2048} onClick={()=>void calculate()}>{busy?'Расчёт пакетов…':`Рассчитать сравнение · ${samples.length} точек`}</Button></div><p className="field-help">В каждой UTC-точке — отдельный короткий пакет при одинаковых символах, шуме и seed: реальный ПЭС, реальный ПЭС + Кларк, прогнозный ПЭС. Графики показывают качество пакетов в течение дня. При двух источниках используются только общие метки времени; дни берутся из выбранной выборки эксперимента.</p>{samples.length>2048&&<p role="alert">Более 2048 точек. Выберите один день или меньший диапазон; данные автоматически не прореживаются.</p>}{error&&<p role="alert" className="inline-error">{error}</p>}{result&&!current&&<p role="status">Период или настройки изменились — пересчитайте сравнение.</p>}{current&&<><div className="radio-dashboard-main">{(['ber','evm_percent'] as const).map(field=><div key={field}><h3>{field==='ber'?'BER в течение дня':'EVM в течение дня, %'}</h3><Suspense fallback={<p>Загрузка графика…</p>}><Plot data={Object.entries(caseLabels).map(([name,label],i)=>{const rows=current.rows.filter(r=>r.case===name);return {type:'scatter',mode:'lines+markers',x:rows.map(r=>r.time),y:rows.map(r=>r.metrics[field]),name:label,line:{color:['#168fb7','#d99a28','#b348c5'][i]}}})} layout={{height:260,margin:{l:65,r:20,t:15,b:85},paper_bgcolor:'transparent',xaxis:{title:{text:'Время, UTC'},type:'date'},yaxis:{title:{text:field==='ber'?'BER':'EVM, %'}},legend:{orientation:'h',y:-.35}}} config={{displaylogo:false,responsive:true}}/></Suspense></div>)}</div><div className="analysis-table"><table><thead><tr><th>День UTC</th><th>Случай</th><th>Пакетов</th><th>Ошибок / бит</th><th>BER</th><th>EVM, %</th></tr></thead><tbody>{current.summaries.map(row=><tr key={row.day+row.case}><td>{row.day==='all'?'Весь выбранный период':row.day}</td><td>{caseLabels[row.case]}</td><td>{row.packets}</td><td>{row.errors} / {row.bits}</td><td>{row.ber.toExponential(3)}</td><td>{row.evm_percent.toFixed(3)}</td></tr>)}</tbody></table></div>{current.notes.map(note=><p className="field-help" key={note}>{note}</p>)}<Button variant="secondary" onClick={()=>{const url=URL.createObjectURL(new Blob([JSON.stringify({analysis,config,...current},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='radio-daily-comparison.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}}>Скачать сравнение JSON</Button></>}</Card>
+}

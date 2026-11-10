@@ -86,7 +86,37 @@ def split_data(df, features, target, task, params):
         if y.nunique() < 2:
             raise ValueError('Для классификации нужны минимум два класса.')
     positions = np.arange(len(work))
-    if p.get('size_mode') == 'rows':
+    if p.get('size_mode') == 'days':
+        if p['split'] != 'time' or df.attrs.get('time') is None:
+            raise ValueError('Разбиение по дням требует временного индекса и разделения по времени.')
+        times = df.attrs['time'].reset_index(drop=True)
+        gap = int(df.attrs.get('horizon', 0))
+        source_times = times.iloc[work.index].reset_index(drop=True)
+        target_times = times.shift(-gap).iloc[work.index].reset_index(drop=True)
+        days = target_times.dt.normalize()
+        valid = target_times.notna()
+        if p.get('day_start'):
+            valid &= days >= pd.Timestamp(p['day_start'])
+        if p.get('day_end'):
+            valid &= days <= pd.Timestamp(p['day_end'])
+        if p.get('day_start') and p.get('day_end') and pd.Timestamp(p['day_start']) > pd.Timestamp(p['day_end']):
+            raise ValueError('Начало диапазона дней должно быть не позже конца.')
+        available = sorted(days[valid].unique())
+        counts = [p.get('validation_days', 3), p.get('test_days', 1)]
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not np.isfinite(v) or int(v) != v or v < 1 for v in counts):
+            raise ValueError('Число дней валидации и теста должно быть положительным целым.')
+        nval, ntest = map(int, counts)
+        if len(available) <= nval + ntest:
+            raise ValueError(f'В диапазоне {len(available)} доступных дней; нужны дни обучения, {nval} валидации и {ntest} теста.')
+        validation_start, test_start = available[-nval-ntest], available[-ntest]
+        train_idx = positions[(valid & (days < validation_start)).to_numpy()]
+        val_idx = positions[(valid & (days >= validation_start) & (days < test_start)).to_numpy()]
+        test_idx = positions[(valid & (days >= test_start)).to_numpy()]
+        # Purge targets reaching the next partition's feature time, including horizon overlap.
+        val_idx = val_idx[(target_times.iloc[val_idx] < source_times.iloc[test_idx[0]]).to_numpy()]
+        if len(val_idx):
+            train_idx = train_idx[(target_times.iloc[train_idx] < source_times.iloc[val_idx[0]]).to_numpy()]
+    elif p.get('size_mode') == 'rows':
         sizes = [p.get(k) for k in ('train_rows','validation_rows','test_rows')]
         if any(v is None or int(v)!=v for v in sizes):
             raise ValueError('Укажите целое число строк для каждой части.')

@@ -60,7 +60,8 @@ def resolve(source, request):
             frame['Время']=frame.index
         time_col, value_col='Время',source.run_field
         provenance={'kind':'run','run_id':source.run_id,'model':run.get('name'),'target':run.get('target'),
-                    'split':source.split,'field':source.run_field,'full_saved_predictions':True}
+                    'split':source.split,'field':source.run_field,'full_saved_predictions':True,
+                    'horizon':(run.get('config') or {}).get('preparation',{}).get('horizon',0)}
     clean, quality=prepare_tec(frame,time_col,value_col,source.unit,source.tec_type,request.elevation,request.height_km)
     return clean, {**provenance,'input_unit':source.unit,'tec_type':source.tec_type,'quality':quality}
 
@@ -121,3 +122,33 @@ def available_tec_runs():
         results.append({'id':path.stem,'model':run.get('name','Модель'),'target':run.get('target',''),
             'timeAvailable':has_time,'rows':len(frame)})
     return results
+
+
+class StationRequest(BaseModel):
+    dataset: str
+    times: list[str] = Field(max_length=50000)
+
+
+@router.post('/stations')
+def station_field(request: StationRequest):
+    """Observed station/time field; never invent geographical coordinates."""
+    from api.main import get_dataset
+    from ml_lab.time_index import detect_time_columns, parse_datetime_values
+    frame=get_dataset(request.dataset).copy()
+    columns=detect_time_columns(frame)
+    stations=[c for c in frame.columns if str(c).lower().endswith('_abstec')]
+    if not columns or len(stations)<2:
+        return {'stations':[], 'time':[], 'values':[], 'note':'В наборе нет нескольких колонок станций *_absTEC с общей шкалой времени.'}
+    raw=frame[columns].astype(str).agg(' '.join,axis=1)
+    parsed=parse_datetime_values(raw).dt.tz_localize('UTC')
+    wanted=pd.to_datetime(request.times,utc=True)
+    mask=parsed.isin(wanted)
+    selected=frame.loc[mask].copy();selected['_utc']=parsed[mask]
+    selected=selected.sort_values('_utc').drop_duplicates('_utc')
+    values=[]
+    for col in stations:
+        numbers=pd.to_numeric(selected[col],errors='coerce')
+        values.append([float(x) if pd.notna(x) and np.isfinite(x) and x>=0 else None for x in numbers])
+    return {'stations':[str(c).removesuffix('_absTEC') for c in stations],
+            'time':[t.isoformat() for t in selected['_utc']], 'values':values,
+            'note':'Наблюдения разных станций из колонок *_absTEC. Идентификаторы станций не заменяют широту и долготу; географическая интерполяция не выполняется. Единицы исходных колонок: TECU.'}

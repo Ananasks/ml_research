@@ -620,7 +620,7 @@ def preparation_params(prepared, features, target, task, options):
     params = DEFAULTS | options
     if prepared.attrs.get("time") is None:
         params["split"] = "random"
-    if params.get("forecast_start"):
+    if params.get("forecast_start") and params.get("size_mode") != "days":
         end = params.get("forecast_end") or params["forecast_start"]
         if len(str(end)) == 10:
             end = (pd.Timestamp(end) + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)).isoformat()

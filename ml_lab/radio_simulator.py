@@ -26,6 +26,9 @@ class RadioConfig(BaseModel):
     source_context: dict = Field(default_factory=dict)
     modulation: Literal['BPSK', 'QPSK', '16-QAM'] = 'QPSK'
     doppler_hz: float = Field(1, ge=0, le=10)
+    clarke_waves: int = Field(128, ge=16, le=256)
+    diagnostic_duration_s: float = Field(60, ge=5, le=120)
+    diagnostic_rate_hz: int = Field(40, ge=40, le=160)
     offset_hz: float = Field(0, ge=-20, le=20)
     snr_db: float = Field(15, ge=-5, le=40)
     rate_hz: float = Field(10000, ge=1000, le=20000000)
@@ -53,7 +56,7 @@ class RadioConfig(BaseModel):
 
 
 def channel(config, t, seed):
-    fading = clarke(t, config.doppler_hz, seed) if config.fading_enabled and config.model != 'tec' else np.ones_like(t, dtype=complex)
+    fading = clarke(t, config.doppler_hz, seed, waves=config.clarke_waves) if config.fading_enabled and config.model != 'tec' else np.ones_like(t, dtype=complex)
     plasma = transfer(np.maximum(0, config.tec_stec_tecu+config.tec_rate_tecu_s*t),config.carrier_mhz*1e6) if config.model!='clarke' else 1
     return fading * plasma * np.exp(2j*np.pi*config.offset_hz*t)
 
@@ -119,7 +122,7 @@ def spectrum(x, fs):
     return {'f': f[order].tolist(), 'db': (10*np.log10(np.maximum(p[order], 1e-20))).tolist()}
 
 
-def experiment(config, model=None):
+def experiment(config, model=None, compact=False):
     if model:
         config = config.model_copy(update={'model': model})
     rng = np.random.default_rng(config.seed)
@@ -210,6 +213,10 @@ def experiment(config, model=None):
     equalized = decode(received,noise_var)
     raw_metrics = ber_metrics(indices[data_mask], received[data_mask], points, labels)
     metrics = ber_metrics(indices[data_mask], equalized[data_mask], points, labels)
+    if compact:
+        return {'metrics': metrics, 'raw_metrics': raw_metrics,
+                'reference_energy': float(np.sum(np.abs(x[data_mask])**2)),
+                'error_energy': float(np.sum(np.abs(equalized[data_mask]-x[data_mask])**2))}
     sweep = []
     if config.sweep:
         for snr in range(0, 31, 5):
@@ -248,15 +255,18 @@ def simulate(config: RadioConfig):
         'mean_ber':float(values.mean()),'interval95': [max(0.,float(values.mean())-radius),min(1.,float(values.mean())+radius)] if radius is not None else None,
         'method':'Student t over independent realization BER means; unavailable for one realization'}
     # A separate 60 s observation, NOT stretched symbol time; same process seed.
-    dt = .025
-    t = np.arange(2400)*dt
+    dt = 1/config.diagnostic_rate_hz
+    t = np.arange(round(config.diagnostic_duration_s*config.diagnostic_rate_hz))*dt
     g = channel(config, t, config.seed+101)
     intensity = np.abs(g)**2
-    fading = clarke(t, config.doppler_hz, config.seed+101)
+    fading = clarke(t, config.doppler_hz, config.seed+101, waves=config.clarke_waves)
     centered = fading-fading.mean()
     variance = float(np.mean(np.abs(centered)**2))
-    lags = np.arange(201)
+    lags = np.arange(min(201,len(t)//2))
     acf = [float(np.real(np.mean(centered[:len(t)-lag]*np.conj(centered[lag:])))/variance) if variance > 1e-20 else None for lag in lags]
+    channel_centered=g-g.mean()
+    channel_variance=float(np.mean(np.abs(channel_centered)**2))
+    channel_acf=[float(np.real(np.mean(channel_centered[:len(t)-lag]*np.conj(channel_centered[lag:])))/channel_variance) if channel_variance>1e-20 else None for lag in lags]
     paired=None
     if config.source_context.get('input_mode')=='compare' and config.compensation_stec_tecu is not None and config.model!='clarke':
         paired=experiment(config.model_copy(update={'tec_stec_tecu':config.compensation_stec_tecu,'tec_rate_tecu_s':config.compensation_rate_tecu_s}))
@@ -278,15 +288,19 @@ def simulate(config: RadioConfig):
         warnings += ['ПЭС линейно продолжается на длительность пакета от выбранного времени; общая задержка компенсирована, дисперсия OFDM применяется циклически без межблочной памяти.']
     if metrics['errors'] < 100:
         warnings += ['Мало битовых ошибок: увеличьте число символов и повторите с другими seed; BER=0 не означает нулевую вероятность ошибки.']
-    if config.doppler_hz*60 < 10:
-        warnings += ['За 60 с мало периодов замирания; эмпирические ACF и S4 могут сильно отличаться от ансамблевых значений.']
+    if config.doppler_hz*config.diagnostic_duration_s < 10:
+        warnings += [f'За {config.diagnostic_duration_s:g} с мало периодов замирания; эмпирические ACF и S4 могут сильно отличаться от ансамблевых значений.']
+    from ml_lab.clarke_statistics import fading_statistics
+    fading_stats = fading_statistics(t, np.abs(fading), config.doppler_hz)
     kbits = constellation(config.modulation)[1].shape[1]
     snrs = np.arange(0, 31, 5)
     ebn0 = 10**(snrs/10)/kbits
     # Exact Gray BPSK/QPSK reference; 16-QAM is labelled high-SNR approximation.
     awgn = .5*erfc(np.sqrt(ebn0)) if kbits < 4 else .375*erfc(np.sqrt(.4*ebn0))
     return {'config': config.model_dump(), 'primary': primary, 'predicted_channel':paired, 'ensemble':ensemble, 'warnings': warnings, 'models': MODEL_REGISTRY,
-            'diagnostics': {'time': t.tolist(), 'amplitude': np.abs(g).tolist(), 'phase': np.unwrap(np.angle(g)).tolist(),
+            'clarke_statistics': fading_stats,
+            'channel_statistics': fading_statistics(t, np.abs(g), config.doppler_hz if config.model!='tec' and config.fading_enabled else 0),
+            'diagnostics': {'channel_acf':channel_acf, 'channel_psd':spectrum(g,1/dt), 'time': t.tolist(), 'amplitude': np.abs(g).tolist(), 'phase': np.unwrap(np.angle(g)).tolist(),
                 'real': g.real.tolist(), 'imag': g.imag.tolist(),
                 's4': float(np.std(intensity)/np.mean(intensity)), 'mean_power': float(intensity.mean()),
                 'lag_s': (lags*dt).tolist(), 'acf': acf, 'acf_theory': j0(2*np.pi*config.doppler_hz*lags*dt).tolist(),
