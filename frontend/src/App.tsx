@@ -41,8 +41,8 @@ const navGroups = [
     { id: 'radio' as PageKey, label: 'Анализ радиоканала', icon: Activity },
     { id: 'workflow' as PageKey, label: 'Схема исследования', icon: Workflow },
     { id: 'builder' as PageKey, label: 'Конструктор эксперимента', icon: Workflow },
-    { id: 'radio-narrow' as PageKey, label: 'Узкополосный имитатор', icon: Activity },
-    { id: 'radio-wide' as PageKey, label: 'Широкополосный имитатор', icon: Activity },
+    { id: 'radio-narrow' as PageKey, label: 'ПЭС', icon: Activity },
+    { id: 'radio-wide' as PageKey, label: 'Моделирование трансионосферного радиоканала', icon: Activity },
   ] },
   { label: 'Библиотека', items: [
     { id: 'models' as PageKey, label: 'Каталог моделей', icon: Boxes },
@@ -82,6 +82,7 @@ function prettyMetric(value: number | null | undefined) {
 
 function App() {
   const [page, setPage] = useState<PageKey>('overview')
+  const [radioMode,setRadioMode]=useState<'narrow'|'wide'>('narrow')
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [readOptions, setReadOptions] = useState<DatasetReadOptions>({separator:null,encoding:'utf-8-sig',decimal:'.',sheet:0})
   const [selectedDataset, setSelectedDataset] = useState('')
@@ -273,7 +274,7 @@ function App() {
           {page === 'builder' && <Suspense fallback={<div className="plot-loading">Загрузка конструктора…</div>}><ResearchWorkbench key="independent-workflow-builder" datasets={datasets} experiment={builderResult} journal={journal} onExperiment={setBuilderResult} onJournal={refreshJournal} onUpload={file=>uploadDataset(file,false)} /></Suspense>}
           <div className="radio-lab radio-research rr-data-source" style={{display:page==='data'||page==='radio-narrow'||page==='radio-wide'?'block':'none'}}><TecWorkspace compact portalTarget={page==='radio-narrow'||page==='radio-wide'?tecSourceSlot:null} testOnly title="Данные ПЭС для радиоканала" actionLabel="Применить данные ПЭС" datasets={datasets} selectedDataset={selectedDataset} experiments={[result,builderResult].filter((r):r is RunResult=>r!==null).filter((r,i,a)=>a.findIndex(x=>x.id===r.id)===i)} visible={page==='data'} view="sources" periodTimes={[]} parameters={tecGeometry} analyzeRef={tecAnalyzeRef} onSelection={setTecSelection} onAnalysis={setTecAnalysis} selectionRef={tecSelectionRef} onData={()=>setPage('data')} onPredict={()=>setPage('experiment')}/></div>
           {page === 'experiment' && <ModelTraining dataset={activeDataset} target={target} task={task} features={features} preparation={preparation} training={trainingOptions} ready={Boolean(preview)} model={model} setModel={setModel} params={params} setParams={setParams} catalog={catalog} loading={loading} onRun={runExperiment} strategy={strategy} setStrategy={setStrategy} count={variantCount} setCount={setVariantCount} space={searchSpace} setSpace={setSearchSpace} plan={candidatePlan} setPlan={setCandidatePlan} result={result} onData={()=>setPage('data')} onResults={()=>setPage('results')} />}
-          {(page === 'radio-narrow' || page === 'radio-wide') && <Suspense fallback={<p>Загрузка имитатора…</p>}><RadioSimulator key={page} mode={page === 'radio-wide' ? 'wide' : 'narrow'} onSourceSlot={setTecSourceSlot} analysis={tecTestAnalysis} selection={tecSelection} selectionRef={tecSelectionRef} geometry={tecGeometry} onGeometryChange={setTecGeometry} configuredTestDays={tecTraining.size_mode==='days'?Number(tecTraining.test_days??1):null} onData={()=>setPage('data')} onResults={()=>setPage('results')}/></Suspense>}
+          {(page === 'radio-narrow' || page === 'radio-wide') && <Suspense fallback={<p>Загрузка имитатора…</p>}><RadioSimulator key={`${page}-${radioMode}`} section={page==='radio-narrow'?'forecast':'hybrid'} mode={radioMode} onModeChange={setRadioMode} onSourceSlot={setTecSourceSlot} analysis={tecTestAnalysis} selection={tecSelection} selectionRef={tecSelectionRef} geometry={tecGeometry} onGeometryChange={setTecGeometry} configuredTestDays={tecTraining.size_mode==='days'?Number(tecTraining.test_days??1):null} onData={()=>setPage('data')} onResults={()=>setPage('results')}/></Suspense>}
           {page === 'radio' && <Suspense fallback={<p>Загрузка анализа…</p>}><RadioAnalysis datasets={datasets} selected={selectedDataset} onDataset={setSelectedDataset} preparation={preparation}/></Suspense>}
           {page === 'results' && <ResultsWorkspace analysis={tecTestAnalysis} onData={()=>setPage('data')}><ResultsPage result={result} onGo={setPage} onRecovered={next=>{setResult(next);setError('');void refreshJournal().catch(()=>{})}} /></ResultsWorkspace>}
           {page === 'models' && <ModelsPage catalog={filteredCatalog} query={query} task={task} experiment={result} />}
