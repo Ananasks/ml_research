@@ -1,6 +1,8 @@
 """Validated, bounded radio experiments."""
 from fastapi import APIRouter, HTTPException
 from ml_lab.radio_simulator import RadioConfig, simulate
+from ml_lab.channel_lab import ChannelLabConfig, run_channel_lab
+from ml_lab.channel_setup import ChannelSetupRequest, prepare_channel_setup
 from ml_lab.radio_daily import DailyRequest, compare_daily
 from ml_lab.radio_research import ResearchRequest, ResponseRequest, analyze_research, ionosphere_response
 
@@ -44,5 +46,18 @@ def radio_research(request: ResearchRequest):
 def radio_response(request: ResponseRequest):
     try:
         return ionosphere_response(request)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post('/channel-lab')
+def channel_lab(request: ChannelLabConfig):
+    return run_channel_lab(request)
+
+
+@router.post('/channel-setup')
+def channel_setup(request: ChannelSetupRequest):
+    try:
+        return prepare_channel_setup(request)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
