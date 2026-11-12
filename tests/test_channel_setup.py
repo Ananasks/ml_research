@@ -81,3 +81,17 @@ def test_zero_distance_has_explicit_scenario_fallback():
     p=prepare({'model':'screen','distance_km':0})
     assert any('100 м' in note for note in p['notes'])
     assert p['config']['distance_km']==0
+
+
+def test_signal_settings_and_source_provenance_survive_preparation():
+    cfg = {'model':'physical','scattering':'none','signal_type':'gnss',
+           'propagation':'linear','cp_samples':12,'tec_rate_tecu_s':0.001,'source_context':{'kind':'measured','time_utc':'2026-01-01T00:00:00Z'}}
+    prepared = prepare(cfg)
+    for name in ['signal_type','propagation','cp_samples','source_context']:
+        assert prepared['config'][name] == cfg[name]
+
+
+@pytest.mark.parametrize('context', [{'kind':'measured'}, {'kind':'predicted','derivative_available':False}])
+def test_observation_without_derivative_is_not_replaced_by_zero(context):
+    with pytest.raises(ValueError, match='производная'):
+        prepare({'model':'physical','source_context':context})

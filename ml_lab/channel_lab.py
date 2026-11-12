@@ -15,6 +15,12 @@ REFERENCE_HZ = 1575.42e6
 
 
 class ChannelLabConfig(BaseModel):
+    source_context: dict = Field(default_factory=dict)
+    signal_type: Literal['ofdm', 'qpsk', 'gnss', 'lfm'] = 'ofdm'
+    propagation: Literal['circular', 'linear'] = 'circular'
+    cp_samples: int = Field(32, ge=0, le=128)
+    snr_db: float = Field(20, ge=-5, le=60)
+    noise_enabled: bool = True
     model: Literal['clarke', 'screen', 'physical'] = 'clarke'
     mode: Literal['narrow', 'wide'] = 'narrow'
     carrier_mhz: float = Field(1575.42, ge=100, le=12000)
@@ -40,6 +46,10 @@ class ChannelLabConfig(BaseModel):
 
     @model_validator(mode='after')
     def sampling(self):
+        if self.source_context.get('kind') in ('measured', 'predicted') and (
+            self.source_context.get('derivative_available') is False or 'tec_rate_tecu_s' not in self.model_fields_set
+        ):
+            raise ValueError('Для измеренного или прогнозного ПЭС нужна известная производная; нулевая производная не подставляется автоматически.')
         if self.sample_rate_hz <= 2*self.doppler_hz and (self.model == 'clarke' or self.model == 'physical' and self.scattering == 'clarke'):
             raise ValueError('Для Кларка требуется Fs > 2 fD.')
         if self.uses_screen and self.duration_s*self.velocity_m_s > .8*self.screen_size*self.spacing_m:
@@ -178,7 +188,18 @@ def run_channel_lab(cfg: ChannelLabConfig):
     if scattering=='screen' and cfg.velocity_m_s == 0:
         warnings.append('Нулевая скорость: приёмник неподвижен в замороженном поле, временных сцинтилляций нет.')
     warnings.append('Bc: первое пересечение |R|=0,5 в исследованной полосе. Отсутствие пересечения не означает измеренную бесконечную Bc.')
-    return dict(config=cfg.model_dump(), time_s=t.tolist(), real=h.real.tolist(), imag=h.imag.tolist(), amplitude=abs(h).tolist(), phase=np.unwrap(np.angle(h)).tolist(),
+    from ml_lab.channel_sounding import sound_channel
+    signal_matrix = matrix.copy()
+    if physical and cfg.mode == 'wide':
+        signal_matrix *= np.exp(1j*k[track_indices][None, :]/fc)
+    transmission = sound_channel(signal_matrix, nu, t[track_indices], seed=cfg.seed,
+                                 snr_db=cfg.snr_db, noise_enabled=cfg.noise_enabled,
+                                 signal_type=cfg.signal_type, propagation=cfg.propagation, cp_samples=cfg.cp_samples)
+    transmission['timing_reference'] = 'Common TEC group delay compensated; absolute delay in physical.delay_ns.'
+    warnings.append('Сигнальный тракт: замороженные состояния. В линейном режиме учитываются память FIR и фактический CP; в циклическом защитный интервал считается достаточным. ICI от эволюции внутри блока не моделируется.')
+    return dict(transmission=transmission, parameter_basis=dict(given=cfg.model_dump(),
+                truth='Channel transfer and CIR calculated from selected model',
+                estimated='Independent full-band training; BER/EVM on separate payload'), config=cfg.model_dump(), time_s=t.tolist(), real=h.real.tolist(), imag=h.imag.tolist(), amplitude=abs(h).tolist(), phase=np.unwrap(np.angle(h)).tolist(),
                 lag_s=lag_s.tolist(),acf=ac,acf_theory=theoretical,
                 psd=dict(f=f[order].tolist(),density=p[order].real.tolist()),theory_psd=dict(f=df.tolist(),density=np.asarray(theory_psd).tolist()),
                 frequency_mhz=(nu/1e6).tolist(),gain_db=(20*np.log10(np.maximum(abs(response),1e-15))).tolist(),response_phase=np.unwrap(np.angle(response)).tolist(),

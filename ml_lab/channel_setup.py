@@ -32,7 +32,11 @@ def prepare_channel_setup(request: ChannelSetupRequest):
             from pydantic import TypeAdapter
             values[name] = TypeAdapter(field.rebuild_annotation()).validate_python(raw[name])
         else:
-            values[name] = field.default
+            values[name] = field.get_default(call_default_factory=True)
+    if values['source_context'].get('kind') in ('measured', 'predicted') and (
+        values['source_context'].get('derivative_available') is False or 'tec_rate_tecu_s' not in raw
+    ):
+        raise ValueError('Для измеренного или прогнозного ПЭС нужна известная производная; нулевая производная не подставляется автоматически.')
     scenario = SCENARIOS[request.scenario]
     rows = []
     notes = []
